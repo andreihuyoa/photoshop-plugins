@@ -1,0 +1,22 @@
+{
+  "name": "@andreihuyoa/dither-engine",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Dithering, halftone and palette engine. Pure TypeScript, no host APIs.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc --noEmit -p .",
+    "gallery": "node scripts/gallery.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}
