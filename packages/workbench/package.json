@@ -1,0 +1,25 @@
+{
+  "name": "@andreihuyoa/workbench",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Workbench: the design system for andreihuyoa Photoshop plugins. Instrument and Photoshop themes, IBM Plex, React components.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./workbench.css": "./src/workbench.css"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.1.0",
+    "@fontsource/ibm-plex-sans": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}
