@@ -1,0 +1,45 @@
+{
+  "name": "ditherkit",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "cross-env MODE=dev vite build --watch",
+    "build": "cross-env MODE=build vite build",
+    "ccx": "cross-env MODE=package vite build",
+    "zip": "cross-env MODE=zip vite build",
+    "preview": "vite preview",
+    "ccx-install": "cross-env BOLT_ACTION=ccx-install vite",
+    "ccx-uninstall": "cross-env BOLT_ACTION=ccx-uninstall vite",
+    "hmr": "vite",
+    "icons": "node scripts/make-icons.ts",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p webview-ui",
+    "harness": "pnpm --dir webview-ui harness"
+  },
+  "dependencies": {
+    "comlink": "^4.4.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "@andreihuyoa/dither-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "@vitejs/plugin-react": "^4.5.1",
+    "@adobe/cc-ext-uxp-types": "https://github.com/justintaylor-dev/cc-ext-uxp-types.git",
+    "@adobe/premierepro": "26.5.0",
+    "@types/node": "^20.8.7",
+    "@types/photoshop": "^25.0.2",
+    "@types/ws": "^8.5.8",
+    "cross-env": "^7.0.3",
+    "sass": "^1.69.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "ws": "^8.14.2",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "dotenv": "^16.4.5",
+    "vite-uxp-plugin": "^1.3.8",
+    "bolt-uxp-utils": "^1.3.21"
+  },
+  "license": "MIT"
+}
