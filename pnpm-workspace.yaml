@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "ditherkit"
+  - "ditherkit/webview-ui"
+
+# Build scripts pnpm may run: esbuild (Vite's compiler) and @parcel/watcher (Sass).
+allowBuilds:
+  esbuild: true
+  "@parcel/watcher": true

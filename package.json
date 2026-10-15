@@ -1,0 +1,21 @@
+{
+  "name": "photoshop-plugins",
+  "private": true,
+  "description": "Photoshop plugins by Andrei Huyo-a: Ditherkit, the Workbench design system and a dithering engine",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andreihuyoa/photoshop-plugins.git"
+  },
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm --filter ditherkit build",
+    "dev": "pnpm --filter ditherkit dev",
+    "harness": "pnpm --filter ditherkit harness"
+  }
+}
