@@ -10,7 +10,7 @@ This repo holds Ditherkit, a dithering and halftone panel for Photoshop, along w
 
 ## Ditherkit
 
-Photoshop's built-in Bitmap mode takes a dozen steps, flattens your file, and gives you a handful of patterns. Ditherkit does it from one panel and keeps your layers intact. You pick a pattern, adjust it against a live preview, and press Dither. The result appears on the canvas and updates as you keep adjusting. Save keeps it; Cancel removes it.
+Photoshop's built-in Bitmap mode takes a dozen steps, flattens your file, and gives you a handful of patterns. Ditherkit does it from one panel and keeps your layers intact. You pick a pattern, adjust it against a live preview in the panel, and press Dither. The result goes into your document as a single undo step.
 
 | | | | |
 | :-: | :-: | :-: | :-: |
@@ -30,10 +30,10 @@ Photoshop's built-in Bitmap mode takes a dozen steps, flattens your file, and gi
   - RGB with a set number of levels per channel.
 - **Tone controls:** a Levels control with five handles over the image's histogram, plus blur, sharpen, denoise and invert.
 - **Scale and edges:** chunky pixels, print-resolution sizing, and crisp, soft or rounded edges.
-- **Output:** a new layer, a replacement for the source (the original stays, hidden), one masked fill layer per color, a layer mask, a new document, or a PNG.
+- **Output:** a new layer, a replacement for the source (the original stays, hidden), one masked fill layer per color, a layer mask, a new document, or a PNG. Pick it from the arrow on the Dither button.
 - **Batch:** dither every selected layer with the same settings.
 - **Document check:** warns about CMYK, 16-bit or non-sRGB documents and converts them in one click.
-- **Presets** you can save, import and export.
+- **Presets** you can save, rename, delete, import and export.
 - **Two themes:** the panel's own Instrument look, light or dark to match Photoshop, or Photoshop's native look. Switch in the panel menu.
 
 ### Install
@@ -60,10 +60,7 @@ To install it permanently instead, run `pnpm --filter ditherkit ccx` and double-
 1. Select a layer, or switch the source to **Visible** to use everything you can see.
 2. Pick a pattern and color mode. The preview at the top updates as you go. Drag the line across it to compare with the original. Scroll over the preview to zoom, drag to move around, and click a spot to see it at 100%.
 3. Choose what the result should become with the arrow on the **Dither** button: a new layer, a replacement for the source, color layers, a layer mask, a new document or a PNG. The button shows your choice.
-4. Press **Dither** (or Enter). The result appears on the canvas and keeps updating while you adjust.
-5. Press **Save** (Enter) to keep it, or **Cancel** (Esc) to remove it.
-
-The whole edit is one step in Photoshop's history, so a single undo removes it.
+4. Press **Dither** (or Enter). The result is written into the document as one step, so a single undo removes it.
 
 See the [changelog](ditherkit/CHANGELOG.md) for what changed in each version.
 

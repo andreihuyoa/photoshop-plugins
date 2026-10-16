@@ -1,6 +1,6 @@
 {
   "name": "@andreihuyoa/dither-engine",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Dithering, halftone and palette engine. Pure TypeScript, no host APIs.",
   "type": "module",

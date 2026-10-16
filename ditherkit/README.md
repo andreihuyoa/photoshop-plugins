@@ -19,7 +19,7 @@ Run these from this folder, or from the repo root with `pnpm --filter ditherkit 
 
 | Path | What it does |
 | --- | --- |
-| `src/api/photoshop.ts` | Everything that touches Photoshop: reading pixels, previews, the live canvas session, every output type, batch, document fixes, palette and preset files. The panel can call every function exported here. |
+| `src/api/photoshop.ts` | Everything that touches Photoshop: reading pixels, previews, applying the dither as each output type, batch, document fixes, palette and preset files. The panel can call every function exported here. |
 | `src/shared/settings.ts` | Settings, presets and output types, shared by the plugin side and the panel |
 | `src/main.tsx` | Hosts the panel's webview and forwards Photoshop events to it |
 | `webview-ui/src/main-webview.tsx` | The panel UI, built from [Workbench](../packages/workbench) components |
@@ -30,4 +30,4 @@ The two sides talk through Bolt UXP's Comlink bridge, so everything passed betwe
 
 ## Things that only work inside Photoshop
 
-The harness covers the panel, but these need a real document to test: the live canvas layer, undoing through history on Cancel, color-layer and layer-mask output, PNG export, and the document fixes.
+The harness covers the panel, but these need a real document to test: each output type (especially color layers, layer masks and PNG export) and the document fixes. Each Dither writes what it did to `ditherkit-debug.log` in the plugin's data folder (on macOS, `~/Library/Application Support/Adobe/UXP/PluginsStorage/PHSP/<version>/Developer/com.andrei.ditherkit/PluginData`), which is the quickest way to see where something went wrong.
