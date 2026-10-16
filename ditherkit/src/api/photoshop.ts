@@ -419,13 +419,18 @@ export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> 
 
 /** Removes the live layer and everything the session added to history. */
 async function unwind(doc: any, sess: SessionState): Promise<void> {
+  // Step history back to before the dither, so the whole session leaves no undo steps behind.
   const state = sess.startStateId !== null ? (doc.historyStates as any[]).find((h) => h.id === sess.startStateId) : null;
   if (state) {
-    doc.activeHistoryState = state;
-  } else {
-    const temp = (doc.layers as any[]).find((l) => l.id === sess.tempLayerId) ?? findLayer(doc.layers, sess.tempLayerId);
-    if (temp) temp.delete();
+    try { doc.activeHistoryState = state; } catch { /* fall through to the checks below */ }
+    if (findLayer(doc.layers, sess.tempLayerId)) {
+      try { await action.batchPlay([{ _obj: "select", _target: [{ _ref: "historyState", _id: state.id }] }], {}); } catch { /* checked below */ }
+    }
   }
+  // Never write an output on top of the live layer: if it's still there, remove it directly.
+  const temp = findLayer(doc.layers, sess.tempLayerId);
+  if (temp) temp.delete();
+  if (findLayer(doc.layers, sess.tempLayerId)) throw new Error("Couldn't remove the live layer. Delete it from the Layers panel and try again.");
 }
 
 function findLayer(layers: any[], id: number): any | null {
