@@ -1,11 +1,11 @@
 {
-  "name": "photoshop-plugins",
+  "name": "rea-photoshop-plugins",
   "private": true,
-  "description": "Photoshop plugins by Andrei Huyo-a: Ditherkit, the Workbench design system and a dithering engine",
+  "description": "Free Photoshop plugins by Andrei Huyo-a, starting with Ditherkit",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andreihuyoa/photoshop-plugins.git"
+    "url": "https://github.com/andreihuyoa/rea-photoshop-plugins.git"
   },
   "packageManager": "pnpm@12.11.2",
   "engines": {
