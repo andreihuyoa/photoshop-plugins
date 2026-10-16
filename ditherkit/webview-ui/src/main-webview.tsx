@@ -63,7 +63,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const [working, setWorking] = useState("");
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
   const [menu, setMenu] = useState<"settings" | "presets" | "output" | null>(null);
-  const [dialog, setDialog] = useState<null | { kind: "preflight" } | { kind: "hex"; index: number; value: string } | { kind: "preset"; name: string }>(null);
+  const [dialog, setDialog] = useState<null | { kind: "preflight" } | { kind: "hex"; index: number; value: string } | { kind: "preset"; name: string } | { kind: "manage"; names: string[] }>(null);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [marked, setMarked] = useState<number[]>([]);
 
@@ -377,6 +377,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     { kind: "item", label: "Save current as preset…", onSelect: () => setDialog({ kind: "preset", name: "" }) },
     { kind: "item", label: "Import presets…", onSelect: importPresets },
     { kind: "item", label: "Export presets…", disabled: !prefs.presets.length, onSelect: exportPresets },
+    { kind: "item", label: "Manage presets…", disabled: !prefs.presets.length, onSelect: () => setDialog({ kind: "manage", names: prefs.presets.map((p) => p.name) }) },
   ];
   const settingsMenu: MenuItem[] = [
     { kind: "label", label: "Appearance" },
@@ -621,6 +622,37 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
           <p>Edits turn this into a custom palette.</p>
           <input type="text" autoFocus value={dialog.value} onChange={(e) => setDialog({ ...dialog, value: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()} aria-label="Hex color" />
+        </Dialog>
+      )}
+
+      {dialog?.kind === "manage" && (
+        <Dialog title="Your presets" onClose={() => setDialog(null)} buttons={
+          <>
+            <button className="wb-btn small" onClick={() => setDialog(null)}>Cancel</button>
+            <button className="wb-btn small primary" onClick={() => {
+              // names[i] is the edited name of prefs.presets[i], or "" when deleted.
+              const kept = prefs.presets.flatMap((p, i) =>
+                dialog.names[i] === "" ? [] : [{ ...p, name: dialog.names[i].trim() || p.name }]);
+              const removed = prefs.presets.length - kept.length;
+              setPref("presets", kept);
+              setDialog(null);
+              if (removed) setToast({ message: `Deleted ${removed} preset${removed === 1 ? "" : "s"}.` });
+            }}>Done</button>
+          </>
+        }>
+          <p>Rename a preset by editing its name. Built-in presets can't be changed.</p>
+          <div className="wb-preset-list">
+            {prefs.presets.map((p, i) => dialog.names[i] === "" ? null : (
+              <div className="wb-preset-row" key={p.name}>
+                <input type="text" value={dialog.names[i]} aria-label={`Name of ${p.name}`}
+                  onChange={(e) => setDialog({ kind: "manage", names: dialog.names.map((n, j) => (j === i ? e.target.value || " " : n)) })}
+                  onKeyDown={(e) => e.stopPropagation()} />
+                <button className="wb-btn small danger" aria-label={`Delete ${p.name}`}
+                  onClick={() => setDialog({ kind: "manage", names: dialog.names.map((n, j) => (j === i ? "" : n)) })}>Delete</button>
+              </div>
+            ))}
+            {dialog.names.every((n) => n === "") && <p className="wb-hint">All your presets will be deleted.</p>}
+          </div>
         </Dialog>
       )}
 

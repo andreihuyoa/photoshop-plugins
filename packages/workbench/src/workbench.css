@@ -297,6 +297,10 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-dialog .buttons { display: flex; gap: 6px; justify-content: flex-end; }
 .wb-dialog input[type="text"] { width: 100%; font: inherit; color: var(--wb-ink); background: var(--wb-ground); border: 1px solid var(--wb-line-2); border-radius: var(--wb-r); padding: 6px 8px; margin-bottom: 10px; }
 
+.wb-preset-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; margin-bottom: 12px; }
+.wb-preset-row { display: flex; gap: 6px; align-items: center; }
+.wb-preset-row input[type="text"] { flex: 1; min-width: 0; margin: 0; }
+
 .wb-toast { position: absolute; z-index: 50; left: 12px; right: 12px; bottom: 96px; background: var(--wb-ink); color: var(--wb-ground); border-radius: var(--wb-r); padding: 8px 10px; font-size: 11px; box-shadow: var(--wb-shadow); display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .wb-toast.error { background: var(--wb-danger); color: #fff; }
 .wb-toast button { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
