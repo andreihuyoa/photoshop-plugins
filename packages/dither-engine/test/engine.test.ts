@@ -24,7 +24,7 @@ function grayRamp(w: number, h: number): Pixels {
 
 function mean(img: Pixels, c = 0): number {
   let s = 0;
-  for (let i = 0; i < img.width * img.height; i++) s += img.data[i * img.components + c];
+  for (let i = 0; i < img.width * img.height; i++) s += img.data[i * img.components + c] ?? 0;
   return s / (img.width * img.height);
 }
 
@@ -135,7 +135,7 @@ test("levels: input range, gamma, output range and invert", () => {
   assert.equal(clip[50], 0); assert.equal(clip[200], 255); assert.equal(clip[20], 0);
   const out = levelsLut({ inBlack: 0, inWhite: 255, gamma: 1, outBlack: 40, outWhite: 220 }, false);
   assert.equal(out[0], 40); assert.equal(out[255], 220);
-  assert.ok(levelsLut({ inBlack: 0, inWhite: 255, gamma: 2, outBlack: 0, outWhite: 255 }, false)[128] > 160);
+  assert.ok((levelsLut({ inBlack: 0, inWhite: 255, gamma: 2, outBlack: 0, outWhite: 255 }, false)[128] ?? 0) > 160);
   assert.equal(levelsLut({ inBlack: 0, inWhite: 255, gamma: 1, outBlack: 0, outWhite: 255 }, true)[0], 255);
 });
 
@@ -143,7 +143,7 @@ test("denoise removes isolated specks", () => {
   const src = flat(9, 9, [100, 100, 100]);
   src.data.set([255, 255, 255, 255], (4 * 9 + 4) * 4);
   const out = render(src, { denoise: 1, mode: "tone", steps: 256, algorithm: "threshold" });
-  assert.ok(out.data[(4 * 9 + 4) * 4] < 140);
+  assert.ok((out.data[(4 * 9 + 4) * 4] ?? 255) < 140);
 });
 
 test("auto palette finds the dominant colors", () => {
@@ -163,7 +163,7 @@ test("separate assigns every opaque pixel to an output color", () => {
   const colors: RGB[] = [[0, 0, 0], [255, 255, 255]];
   const out = render(grayRamp(32, 4), { algorithm: "bayer-4" });
   const idx = separate(out, colors);
-  for (let i = 0; i < idx.length; i++) assert.equal(colors[idx[i]].join(","), key(out, i));
+  for (let i = 0; i < idx.length; i++) assert.equal(colors[idx[i] ?? 0]?.join(","), key(out, i));
 });
 
 test("histogram counts every sampled pixel", () => {

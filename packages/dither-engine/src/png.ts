@@ -15,7 +15,7 @@ const CRC_TABLE = (() => {
 
 function crc32(bytes: Uint8Array, start: number, end: number): number {
   let c = 0xffffffff;
-  for (let i = start; i < end; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  for (let i = start; i < end; i++) c = (CRC_TABLE[(c ^ (bytes[i] ?? 0)) & 0xff] ?? 0) ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 
@@ -29,8 +29,8 @@ export function encodePng({ data, width, height, components }: Pixels): Uint8Arr
     for (let x = 0; x < width; x++) {
       const s = (y * width + x) * components;
       const d = y * rowLen + 1 + x * outC;
-      raw[d] = data[s]; raw[d + 1] = data[s + 1]; raw[d + 2] = data[s + 2];
-      if (hasAlpha) raw[d + 3] = data[s + 3];
+      raw[d] = data[s] ?? 0; raw[d + 1] = data[s + 1] ?? 0; raw[d + 2] = data[s + 2] ?? 0;
+      if (hasAlpha) raw[d + 3] = data[s + 3] ?? 0;
     }
   }
 
@@ -68,7 +68,7 @@ export function encodePng({ data, width, height, components }: Pixels): Uint8Arr
   out[p++] = 0x78; out[p++] = 0x01;
   let a = 1, b = 0;
   for (let i = 0; i < raw.length; i++) {
-    a = (a + raw[i]) % 65521;
+    a = (a + (raw[i] ?? 0)) % 65521;
     b = (b + a) % 65521;
   }
   for (let blk = 0; blk < blocks; blk++) {
@@ -95,12 +95,12 @@ export function base64(bytes: Uint8Array): string {
   let s = "";
   let i = 0;
   for (; i + 2 < bytes.length; i += 3) {
-    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
-    s += B64[n >> 18] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + B64[n & 63];
+    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    s += B64.charAt(n >> 18) + B64.charAt((n >> 12) & 63) + B64.charAt((n >> 6) & 63) + B64.charAt(n & 63);
   }
   if (i < bytes.length) {
-    const n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8);
-    s += B64[n >> 18] + B64[(n >> 12) & 63] + (i + 1 < bytes.length ? B64[(n >> 6) & 63] : "=") + "=";
+    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8);
+    s += B64.charAt(n >> 18) + B64.charAt((n >> 12) & 63) + (i + 1 < bytes.length ? B64.charAt((n >> 6) & 63) : "=") + "=";
   }
   return s;
 }

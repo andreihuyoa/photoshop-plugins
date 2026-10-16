@@ -14,7 +14,7 @@ export function toHex(rgb: readonly number[]): string {
 }
 
 export function luminance(c: readonly number[]): number {
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  return 0.2126 * (c[0] ?? 0) + 0.7152 * (c[1] ?? 0) + 0.0722 * (c[2] ?? 0);
 }
 
 export interface Palette {
@@ -64,8 +64,10 @@ export const PALETTES: Palette[] = RAW.map((p) => ({ id: p.id, name: p.name, col
 
 /** Squared redmean distance: cheap and noticeably closer to perceived difference than plain RGB. */
 export function colorDistance(a: readonly number[], b: readonly number[]): number {
-  const rm = (a[0] + b[0]) / 2;
-  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  const [ar = 0, ag = 0, ab = 0] = a;
+  const [br = 0, bg = 0, bb = 0] = b;
+  const rm = (ar + br) / 2;
+  const dr = ar - br, dg = ag - bg, db = ab - bb;
   return (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
 }
 
@@ -75,7 +77,7 @@ export function mergeNearDuplicates(colors: RGB[], threshold: number): RGB[] {
   const t2 = threshold * threshold;
   for (const c of colors) {
     const hit = out.find((o) => colorDistance(o.sum.map((v) => v / o.n), c) < t2);
-    if (hit) { hit.sum = hit.sum.map((v, i) => v + c[i]); hit.n++; }
+    if (hit) { hit.sum = hit.sum.map((v, i) => v + (c[i] ?? 0)); hit.n++; }
     else out.push({ sum: [...c], n: 1 });
   }
   return out.map((o) => o.sum.map((v) => Math.round(v / o.n)) as RGB);

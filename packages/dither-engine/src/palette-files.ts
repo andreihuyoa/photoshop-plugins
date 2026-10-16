@@ -8,7 +8,7 @@ export function parseGpl(text: string): RGB[] {
   const out: RGB[] = [];
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(/^\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\b/);
-    if (m) out.push([clamp(+m[1]), clamp(+m[2]), clamp(+m[3])]);
+    if (m) out.push([clamp(Number(m[1])), clamp(Number(m[2])), clamp(Number(m[3]))]);
   }
   return out;
 }
@@ -27,7 +27,7 @@ function labToRgb(L: number, a: number, b: number): RGB {
   let y = (L + 16) / 116, x = a / 500 + y, z = y - b / 200;
   const f = (t: number) => (t ** 3 > 0.008856 ? t ** 3 : (t - 16 / 116) / 7.787);
   x = 0.95047 * f(x); y = f(y); z = 1.08883 * f(z);
-  const lin = [x * 3.2406 + y * -1.5372 + z * -0.4986, x * -0.9689 + y * 1.8758 + z * 0.0415, x * 0.0557 + y * -0.204 + z * 1.057];
+  const lin: [number, number, number] = [x * 3.2406 + y * -1.5372 + z * -0.4986, x * -0.9689 + y * 1.8758 + z * 0.0415, x * 0.0557 + y * -0.204 + z * 1.057];
   return lin.map((v) => clamp(255 * (v > 0.0031308 ? 1.055 * v ** (1 / 2.4) - 0.055 : 12.92 * v))) as RGB;
 }
 
@@ -67,7 +67,7 @@ export function parseAco(buf: ArrayBuffer): RGB[] {
     let p = offset + 4;
     for (let i = 0; i < count && p + 10 <= v.byteLength; i++) {
       const space = v.getUint16(p);
-      const w = [v.getUint16(p + 2), v.getUint16(p + 4), v.getUint16(p + 6), v.getUint16(p + 8)];
+      const w: [number, number, number, number] = [v.getUint16(p + 2), v.getUint16(p + 4), v.getUint16(p + 6), v.getUint16(p + 8)];
       p += 10;
       if (withNames) { const len = v.getUint32(p); p += 4 + len * 2; }
       if (space === 0) out.push([w[0] >> 8, w[1] >> 8, w[2] >> 8]);
