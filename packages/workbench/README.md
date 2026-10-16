@@ -28,7 +28,7 @@ Every panel is laid out the same way, top to bottom:
 1. **Header:** the andreihuyoa wordmark, the plugin name under it, the version, and a `···` menu.
 2. **Preview stage:** a pixel-exact preview with a before/after split, Fit / 1:1 / 2:1 zoom and a one-line readout.
 3. **Sections** that scroll. Each has a short title, a live summary on the right, and collapses.
-4. **Footer:** a status line, then the action bar. Idle: one primary action. During a live session: `Cancel` and `Save`.
+4. **Footer:** a status line, then the action bar: one primary action, with a dropdown for its options.
 
 ## Tokens
 
@@ -44,19 +44,19 @@ Every panel is laid out the same way, top to bottom:
 | `--wb-line-2` | `#b9bfc6` | `#474d55` | Tab frames, slider tracks, field borders |
 | `--wb-accent` | `#1f4fe0` | `#3d6bff` | Primary button, slider fill, focus, selected tile |
 | `--wb-sel` / `--wb-on-sel` | ink / white | white / ink | Selected tab, zoom chip |
-| `--wb-live` | `#0d7a55` | `#3fbf8a` | Only while something is live on the canvas |
+| `--wb-ok` | `#0d7a55` | `#3fbf8a` | Passing checks in the status line |
 | `--wb-danger` | `#c2372b` | `#ff7a6b` | Errors, muted swatches |
 
 Shape: radius 3px (2px small); 4px spacing grid; 12px panel gutter. Type: IBM Plex Sans 11–12px for the interface and 18px semibold for the plugin name; IBM Plex Mono for numbers, readouts and summaries.
 
 ## Components
 
-`Panel`, `PluginHeader`, `Logo`, `PreviewStage` (zoom, pan, before/after split), `StageBar`, `LiveBadge`, `SettingsIcon`, `PresetsIcon`, `ChevronDownIcon`, `Section`, `Tabs` (`grid` wraps into rows of three, `scroll` scrolls sideways), `Row`, `Slider` (drag, arrow keys, or click the value to type), `Select`, `Toggle`, `ColorField`, `SwatchStrip`, `LevelsControl`, `Menu`, `Dialog`, `Toast`, `StatusLine`, `Progress`. Buttons are plain `<button className="wb-btn">` with `primary`, `small`, `icon` and `danger` modifiers.
+`Panel`, `PluginHeader`, `Logo`, `PreviewStage` (zoom, pan, before/after split), `StageBar`, `SettingsIcon`, `PresetsIcon`, `ChevronDownIcon`, `Section`, `Tabs` (`grid` wraps into rows of three, `scroll` scrolls sideways), `Row`, `Slider` (drag, arrow keys, or click the value to type), `Select`, `Toggle`, `ColorField`, `SwatchStrip`, `LevelsControl`, `Menu` (put `data-menu-toggle` on the button that opens it), `Dialog`, `Toast`, `StatusLine`, `Progress`. Buttons are plain `<button className="wb-btn">` with `primary`, `small`, `icon` and `danger` modifiers.
 
 ## Rules
 
-- **One accent.** `--wb-accent` marks what's active and the one primary action. `--wb-live` appears only while the plugin is editing the document live. Never add another hue.
+- **One accent.** `--wb-accent` marks what's active and the one primary action. `--wb-ok` and `--wb-danger` are only for status. Never add another hue.
 - **Selection inverts.** Selected tabs and chips use `--wb-sel` and `--wb-on-sel`.
 - **Numbers in mono.** Every value, size and readout uses IBM Plex Mono with tabular figures.
 - **Sentence case.** Buttons say exactly what happens (`Dither`, `Save`, `Cancel`, `Convert to RGB`). Errors say what's wrong and offer the fix as a button.
-- **Sliders separate preview from commit.** `onChange` fires while dragging and should only update the panel preview. `onCommit` fires on release and is when the document may change.
+- **The document changes only on the primary action.** Controls update the panel preview; the document is touched once, as one undo step, when the user presses the primary button. `Slider` also has `onCommit` (fires on release) for anything too slow to run while dragging.

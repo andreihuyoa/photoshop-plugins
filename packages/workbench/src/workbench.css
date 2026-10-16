@@ -23,7 +23,7 @@
   --wb-on-accent: #ffffff;
   --wb-sel: #14171b;
   --wb-on-sel: #ffffff;
-  --wb-live: #0d7a55;
+  --wb-ok: #0d7a55;
   --wb-danger: #c2372b;
   --wb-hover: rgba(20, 23, 27, 0.06);
   --wb-shadow: 0 8px 24px rgba(20, 23, 27, 0.16), 0 1px 2px rgba(20, 23, 27, 0.12);
@@ -49,7 +49,7 @@
   --wb-on-accent: #ffffff;
   --wb-sel: #eef0f3;
   --wb-on-sel: #14171b;
-  --wb-live: #3fbf8a;
+  --wb-ok: #3fbf8a;
   --wb-danger: #ff7a6b;
   --wb-hover: rgba(238, 240, 243, 0.06);
   --wb-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -70,7 +70,7 @@
   --wb-on-accent: #ffffff;
   --wb-sel: color-mix(in srgb, var(--wb-ink) 18%, var(--wb-ground));
   --wb-on-sel: var(--wb-ink);
-  --wb-live: #2d9d78;
+  --wb-ok: #2d9d78;
   --wb-danger: #ec5b62;
   --wb-hover: color-mix(in srgb, var(--wb-ink) 8%, transparent);
   --wb-r: 4px;
@@ -168,11 +168,8 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-toolrow .src.disabled { opacity: 0.45; pointer-events: none; }
 .wb-toolrow .wb-btn { padding: 4px 9px; font-size: 11px; font-weight: 500; }
 
-.wb-live { display: flex; align-items: center; gap: 6px; margin: 8px 12px 0; padding: 5px 8px; flex-shrink: 0;
-  background: color-mix(in srgb, var(--wb-live) 14%, transparent); color: var(--wb-live); font-family: var(--wb-mono); font-size: 10px; border-radius: var(--wb-r-sm); }
-.wb-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--wb-live); display: block; animation: wb-pulse 1.4s ease-in-out infinite; }
 @keyframes wb-pulse { 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .wb-live i, .wb-stage-busy { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .wb-stage-busy { animation: none; } }
 
 /* ---------- sections */
 
@@ -264,7 +261,7 @@ html, body, #app { height: 100%; margin: 0; }
 
 .wb-foot { flex-shrink: 0; border-top: 1px solid var(--wb-line); padding: 9px 12px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--wb-ground); }
 .wb-status { font-family: var(--wb-mono); font-size: 10px; color: var(--wb-muted); display: flex; justify-content: space-between; gap: 8px; min-height: 13px; }
-.wb-status .ok { color: var(--wb-live); }
+.wb-status .ok { color: var(--wb-ok); }
 .wb-status .warn { color: var(--wb-danger); }
 .wb-status span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wb-actions { display: flex; gap: 6px; }
@@ -293,7 +290,7 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-dialog .checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .wb-dialog .check { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
 .wb-dialog .check .st { font-family: var(--wb-mono); font-size: 10px; }
-.wb-dialog .check .st.ok { color: var(--wb-live); }
+.wb-dialog .check .st.ok { color: var(--wb-ok); }
 .wb-dialog .check .st.bad { color: var(--wb-danger); }
 .wb-dialog .buttons { display: flex; gap: 6px; justify-content: flex-end; }
 .wb-dialog input[type="text"] { width: 100%; font: inherit; color: var(--wb-ink); background: var(--wb-ground); border: 1px solid var(--wb-line-2); border-radius: var(--wb-r); padding: 6px 8px; margin-bottom: 10px; }

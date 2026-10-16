@@ -177,7 +177,3 @@ export function StageBar({ info, zoomLabel, fit, canZoomIn, canZoomOut, onZoomIn
     </div>
   );
 }
-
-export function LiveBadge({ children }: { children: string }): ReactElement {
-  return <div className="wb-live" role="status"><i />{children}</div>;
-}
