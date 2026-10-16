@@ -58,11 +58,13 @@ To install it permanently instead, run `pnpm --filter ditherkit ccx` and double-
 ### Using it
 
 1. Select a layer, or switch the source to **Visible** to use everything you can see.
-2. Pick a pattern and color mode. The preview at the top updates as you go. Drag the line across it to compare with the original.
+2. Pick a pattern and color mode. The preview at the top updates as you go. Drag the line across it to compare with the original. Scroll over the preview to zoom, drag to move around, and click a spot to see it at 100%.
 3. Press **Dither** (or Enter). The result appears on the canvas and keeps updating while you adjust.
 4. Press **Save** (Enter) to keep it, or **Cancel** (Esc) to remove it. The arrow next to Save picks the output type.
 
 The whole edit is one step in Photoshop's history, so a single undo removes it.
+
+See the [changelog](ditherkit/CHANGELOG.md) for what changed in each version.
 
 ### Status
 

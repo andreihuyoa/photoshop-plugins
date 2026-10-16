@@ -14,7 +14,7 @@ import { Panel, PluginHeader, resolveTheme } from "@andreihuyoa/workbench";
 
 const { theme, tone } = resolveTheme(appearance, hostTheme); // hostTheme from Bolt's getColorScheme()
 <Panel theme={theme} tone={tone}>
-  <PluginHeader name="Ditherkit" version="2.0" actions={menuButton} />
+  <PluginHeader name="Ditherkit" version="0.3.0" actions={menuButton} />
   …
 </Panel>
 ```
@@ -51,7 +51,7 @@ Shape: radius 3px (2px small); 4px spacing grid; 12px panel gutter. Type: IBM Pl
 
 ## Components
 
-`Panel`, `PluginHeader`, `Logo`, `PreviewStage`, `StageBar`, `LiveBadge`, `Section`, `Tabs` (`grid` wraps into rows of three, `scroll` scrolls sideways), `Row`, `Slider` (drag, arrow keys, or click the value to type), `Select`, `Toggle`, `ColorField`, `SwatchStrip`, `LevelsControl`, `Menu`, `Dialog`, `Toast`, `StatusLine`, `Progress`. Buttons are plain `<button className="wb-btn">` with `primary`, `small`, `icon` and `danger` modifiers.
+`Panel`, `PluginHeader`, `Logo`, `PreviewStage` (zoom, pan, before/after split), `StageBar`, `LiveBadge`, `SettingsIcon`, `PresetsIcon`, `ChevronDownIcon`, `Section`, `Tabs` (`grid` wraps into rows of three, `scroll` scrolls sideways), `Row`, `Slider` (drag, arrow keys, or click the value to type), `Select`, `Toggle`, `ColorField`, `SwatchStrip`, `LevelsControl`, `Menu`, `Dialog`, `Toast`, `StatusLine`, `Progress`. Buttons are plain `<button className="wb-btn">` with `primary`, `small`, `icon` and `danger` modifiers.
 
 ## Rules
 
