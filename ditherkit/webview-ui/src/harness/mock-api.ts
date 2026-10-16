@@ -31,7 +31,6 @@ const FIT = downscale(FULL, 560);
 const fitScale = FIT.width / FULL.width;
 const TILE = downscale(FULL, 120);
 
-let session = false;
 let beforeKey = "";
 let autoKey = "";
 let auto: string[] = [];
@@ -56,17 +55,14 @@ const DEMOS: Record<string, object> = {
 };
 
 export function createMockApi(): DitherkitAPI {
-  (window as unknown as { __undoDither: () => void }).__undoDither = () => {
-    session = false;
-    window.dispatchEvent(new CustomEvent("document-changed", { detail: "session-ended" }));
-  };
+
   let prefs: string | null = null;
   const demo = new URL(location.href).searchParams.get("demo");
   if (demo && DEMOS[demo]) prefs = JSON.stringify(DEMOS[demo]);
   else try { prefs = localStorage.getItem("ditherkit.harness.prefs"); } catch { /* ignore */ }
   const status = (source: Source): Status => ({
     hasDoc: true, docName: "sample.psd", layerName: source === "merged" ? "Visible" : "Photo", selectedCount: 3,
-    summary: "RGB · 8-bit · sRGB", ready: true, session,
+    summary: "RGB · 8-bit · sRGB", ready: true,
     checks: [
       { id: "layer", label: source === "merged" ? "Using all visible layers" : "Layer “Photo”", ok: true, fixable: false },
       { id: "mode", label: "RGB color", ok: true, fixable: false },
@@ -115,21 +111,12 @@ export function createMockApi(): DitherkitAPI {
       const tile: Pixels = { data, width: w, height: h, components: 4 };
       return ids.map((id) => ({ id, url: pngDataUrl(render(tile, toEngine({ ...s, algorithm: id, pixelSize: Math.min(2, s.pixelSize) }, active, 0.25, { x: 0, y: 0 }))) }));
     },
-    startSession: async (s) => {
+    applyDither: async (s, output: Output) => {
       const t = performance.now();
       render(FULL, toEngine(s, palette(s).active, 1, { x: 0, y: 0 }));
-      session = true;
-      return { ms: Math.round(performance.now() - t) };
+      await delay(150);
+      return { message: `Would apply as: ${output}.`, ms: Math.round(performance.now() - t) };
     },
-    setSessionOutput: async () => ({ ms: 0 }),
-    updateSession: async (s) => {
-      const t = performance.now();
-      render(FULL, toEngine(s, palette(s).active, 1, { x: 0, y: 0 }));
-      return { ms: Math.round(performance.now() - t) };
-    },
-    cancelSession: async () => { await delay(120); session = false; },
-    saveSession: async (_s, output: Output) => { await delay(200); session = false; return `Would save as: ${output}.`; },
-    isSessionActive: async () => session,
     ditherSelected: async (s) => {
       stop = false;
       for (let i = 1; i <= 3 && !stop; i++) {
@@ -148,7 +135,6 @@ export function createMockApi(): DitherkitAPI {
     getSwatchColors: async () => ({ foreground: "#1d2b53", background: "#fff1e8" }),
     loadPrefs: async () => prefs,
     savePrefs: async (json) => { if (demo) return; try { localStorage.setItem("ditherkit.harness.prefs", json); } catch { /* ignore */ } },
-    // window.__undoDither() in the console simulates undoing the live layer in Photoshop.
     getColorScheme: async () => ({ theme: new URL(location.href).searchParams.get("theme") || "darkest", colors: {} }),
   };
 }
