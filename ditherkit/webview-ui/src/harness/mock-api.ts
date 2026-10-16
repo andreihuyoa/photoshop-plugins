@@ -1,7 +1,7 @@
 // A stand-in for the Photoshop side, for working on the panel in a normal browser (pnpm harness).
 // It runs the real engine on a generated image; Photoshop-only actions just report what they'd do.
 import { autoPalette, downscale, histogram, pngDataUrl, render, toHex, type Pixels } from "@andreihuyoa/dither-engine";
-import { activePalette, paletteHex, toEngine, type DitherSettings, type Output, type Source, type Zoom } from "../../../src/shared/settings";
+import { activePalette, paletteHex, toEngine, type DitherSettings, type Output, type Source, type Viewport } from "../../../src/shared/settings";
 import type { DitherkitAPI, Status } from "../api-types";
 
 function sampleImage(w: number, h: number): Pixels {
@@ -29,9 +29,8 @@ const FIT = downscale(FULL, 560);
 const fitScale = FIT.width / FULL.width;
 const TILE = downscale(FULL, 120);
 
-let view: Pixels = FIT;
-let viewScale = fitScale;
 let session = false;
+let beforeKey = "";
 let autoKey = "";
 let auto: string[] = [];
 let stop = false;
@@ -55,6 +54,10 @@ const DEMOS: Record<string, object> = {
 };
 
 export function createMockApi(): DitherkitAPI {
+  (window as unknown as { __undoDither: () => void }).__undoDither = () => {
+    session = false;
+    window.dispatchEvent(new CustomEvent("document-changed", { detail: "session-ended" }));
+  };
   let prefs: string | null = null;
   const demo = new URL(location.href).searchParams.get("demo");
   if (demo && DEMOS[demo]) prefs = JSON.stringify(DEMOS[demo]);
@@ -72,25 +75,36 @@ export function createMockApi(): DitherkitAPI {
   return {
     getStatus: async (source) => status(source),
     fixIssue: async () => { await delay(200); },
-    loadSource: async (_source: Source, zoom: Zoom) => {
+    loadSource: async () => {
       await delay(80);
-      if (zoom === "fit") { view = FIT; viewScale = fitScale; }
-      else {
-        const k = zoom === "2:1" ? 2 : 1;
-        const cw = Math.round(276 / k), ch = Math.round(180 / k);
-        const x0 = Math.round((FULL.width - cw) / 2), y0 = Math.round((FULL.height - ch) / 2);
-        const data = new Uint8Array(cw * ch * 4);
-        for (let y = 0; y < ch; y++) data.set(FULL.data.subarray(((y0 + y) * FULL.width + x0) * 4, ((y0 + y) * FULL.width + x0 + cw) * 4), y * cw * 4);
-        view = { data, width: cw, height: ch, components: 4 }; viewScale = 1;
-      }
-      return { info: `Photo · ${FULL.width}×${FULL.height} · ${zoom === "fit" ? Math.round(fitScale * 100) + "%" : zoom === "2:1" ? "200%" : "100%"}`, width: view.width, height: view.height, beforeUrl: pngDataUrl(view), histogram: histogram(FIT) };
+      beforeKey = "";
+      return { name: "Photo", width: FULL.width, height: FULL.height, fitScale, histogram: histogram(FIT) };
     },
-    renderPreview: async (s) => {
+    renderPreview: async (s, vp: Viewport) => {
       const t = performance.now();
       const { all, active } = palette(s);
-      const out = render(view, toEngine(s, active, viewScale, { x: 0, y: 0 }));
-      return { url: pngDataUrl(out), width: out.width, height: out.height, palette: all, ms: Math.round(performance.now() - t) };
+      let image: Pixels = FIT, scale = fitScale, x0 = 0, y0 = 0, key = "fit";
+      if (vp.zoom !== "fit") {
+        const p = Math.max(1, Math.round(s.pixelSize));
+        const cw = Math.min(FULL.width, Math.ceil(vp.width / vp.zoom)), ch = Math.min(FULL.height, Math.ceil(vp.height / vp.zoom));
+        x0 = Math.max(0, Math.min(FULL.width - cw, Math.round((vp.cx ?? FULL.width / 2) - cw / 2)));
+        y0 = Math.max(0, Math.min(FULL.height - ch, Math.round((vp.cy ?? FULL.height / 2) - ch / 2)));
+        x0 -= x0 % p; y0 -= y0 % p;
+        const data = new Uint8Array(cw * ch * 4);
+        for (let y = 0; y < ch; y++) data.set(FULL.data.subarray(((y0 + y) * FULL.width + x0) * 4, ((y0 + y) * FULL.width + x0 + cw) * 4), y * cw * 4);
+        image = { data, width: cw, height: ch, components: 4 };
+        scale = 1;
+        key = `${x0},${y0},${cw},${ch}`;
+      }
+      const out = render(image, toEngine(s, active, scale, { x: 0, y: 0 }));
+      const beforeUrl = key !== beforeKey ? pngDataUrl(image) : null;
+      beforeKey = key;
+      const view = vp.zoom === "fit"
+        ? { x: 0, y: 0, w: FULL.width, h: FULL.height, scale }
+        : { x: x0, y: y0, w: image.width, h: image.height, scale: 1 };
+      return { url: pngDataUrl(out), width: out.width, height: out.height, palette: all, ms: Math.round(performance.now() - t), beforeUrl, view };
     },
+    resetPreviewCache: async () => { beforeKey = ""; },
     renderTiles: async (s, ids) => {
       const { active } = palette(s);
       const w = 72, h = 48, x0 = Math.round((TILE.width - w) / 2), y0 = Math.round((TILE.height - h) / 2);
@@ -131,6 +145,7 @@ export function createMockApi(): DitherkitAPI {
     getSwatchColors: async () => ({ foreground: "#1d2b53", background: "#fff1e8" }),
     loadPrefs: async () => prefs,
     savePrefs: async (json) => { if (demo) return; try { localStorage.setItem("ditherkit.harness.prefs", json); } catch { /* ignore */ } },
+    // window.__undoDither() in the console simulates undoing the live layer in Photoshop.
     getColorScheme: async () => ({ theme: new URL(location.href).searchParams.get("theme") || "darkest", colors: {} }),
   };
 }
