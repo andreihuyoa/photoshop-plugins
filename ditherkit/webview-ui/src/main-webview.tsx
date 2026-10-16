@@ -172,7 +172,8 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
 
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | undefined;
-    const onChange = () => {
+    const onChange = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === "session-ended") endedOutside();
       clearTimeout(t);
       t = setTimeout(() => { refreshStatus(); reloadSource(); }, 300);
     };
@@ -198,6 +199,22 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
       setSessionMs(r.ms);
     } catch (e) { fail(e); } finally { setWorking(""); }
   };
+
+  /** The live layer disappeared in Photoshop (undo, delete, closed document): go back to the idle state. */
+  const endedOutside = () => {
+    if (!sessionRef.current) return;
+    sessionRef.current = false;
+    setSession(false);
+    setToast({ message: "The dither was undone in Photoshop." });
+  };
+
+  useEffect(() => {
+    if (!session) return;
+    const check = () => { api.isSessionActive().then((alive) => { if (!alive) { endedOutside(); refreshStatus(); reloadSource(); } }).catch(() => {}); };
+    const timer = setInterval(check, 2000);
+    window.addEventListener("focus", check);
+    return () => { clearInterval(timer); window.removeEventListener("focus", check); };
+  }, [session, api, refreshStatus, reloadSource]);
 
   const cancel = async () => {
     setWorking("Reverting…");

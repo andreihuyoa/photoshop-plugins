@@ -70,19 +70,52 @@ async function selectLayer(id: number): Promise<void> {
 
 let notifying = false;
 const EVENTS = ["select", "make", "delete", "set", "open", "close", "convertMode", "imageSize", "canvasSize", "historyStateChanged"];
+/** Events that arrive while (or just after) Ditherkit itself edits the document are its own, not the user's. */
+let ownEditUntil = 0;
+let ownEdits = 0;
+
 function ensureNotifications(): void {
   if (notifying) return;
   notifying = true;
   action.addNotificationListener(EVENTS, (event: string) => {
-    if (session && event !== "select" && event !== "close") return; // our own edits during a session
+    const own = ownEdits > 0 || Date.now() < ownEditUntil;
+    if (session) {
+      if (own) return;
+      // The user can undo the live layer away (or delete it, or close the document). End the session
+      // so the panel goes back to Dither instead of offering to save something that's gone.
+      if (!sessionAlive()) { changeListener?.("session-ended"); return; }
+      // Stepping through history may have rolled back the last update: render fresh on the next change or save.
+      if (event === "historyStateChanged") session.settingsKey = "";
+      if (event !== "select" && event !== "close") return;
+    } else if (own) {
+      return;
+    }
     changeListener?.(event);
   });
 }
 
+/** True while the live layer still exists. Clears the session when it doesn't. */
+function sessionAlive(): boolean {
+  if (!session) return false;
+  const doc = (app.documents as any[]).find((d) => d.id === session!.docId);
+  if (!doc || !findLayer(doc.layers, session.tempLayerId)) {
+    session = null;
+    return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------- helpers
 
-const modal = <T>(name: string, fn: (ctx: any) => Promise<T>): Promise<T> =>
-  core.executeAsModal(fn as any, { commandName: name }) as Promise<T>;
+async function modal<T>(name: string, fn: (ctx: any) => Promise<T>): Promise<T> {
+  ownEdits++;
+  try {
+    return (await core.executeAsModal(fn as any, { commandName: name })) as T;
+  } finally {
+    ownEdits--;
+    ownEditUntil = Date.now() + 400;
+  }
+}
 
 function activeDoc(): any | null {
   return app.documents.length ? app.activeDocument : null;
@@ -173,7 +206,7 @@ export const getStatus = async (source: Source): Promise<Status> => {
   ensureNotifications();
   const doc = activeDoc();
   if (!doc) {
-    return { hasDoc: false, docName: "", layerName: "", selectedCount: 0, summary: "No document open", checks: [], ready: false, session: !!session };
+    return { hasDoc: false, docName: "", layerName: "", selectedCount: 0, summary: "No document open", checks: [], ready: false, session: sessionAlive() };
   }
   const layers = doc.activeLayers as any[];
   const layer = layers[0];
@@ -191,7 +224,7 @@ export const getStatus = async (source: Source): Promise<Status> => {
   ];
   const ready = layerOk && mode && bits;
   const summary = [mode ? "RGB" : "Not RGB", bits ? "8-bit" : "Not 8-bit", srgb ? "sRGB" : profile.slice(0, 18)].join(" · ");
-  return { hasDoc: true, docName: doc.title ?? doc.name, layerName: source === "merged" ? "Visible" : layer?.name ?? "", selectedCount: layers.length, summary, checks, ready, session: !!session };
+  return { hasDoc: true, docName: doc.title ?? doc.name, layerName: source === "merged" ? "Visible" : layer?.name ?? "", selectedCount: layers.length, summary, checks, ready, session: sessionAlive() };
 };
 
 export const fixIssue = async (id: Check["id"]): Promise<void> => {
@@ -209,7 +242,7 @@ export const fixIssue = async (id: Check["id"]): Promise<void> => {
 export interface SourceInfo { info: string; width: number; height: number; beforeUrl: string; histogram: number[] }
 
 export const loadSource = async (source: Source, zoom: Zoom): Promise<SourceInfo> => {
-  if (session) throw new Error("Finish the current dither first (Save or Cancel).");
+  if (sessionAlive()) throw new Error("Finish the current dither first (Save or Cancel).");
   ensureNotifications();
   return modal("Ditherkit preview", async () => {
     const doc = activeDoc();
@@ -327,11 +360,11 @@ export const startSession = async (s: DitherSettings): Promise<{ ms: number }> =
 };
 
 export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> => {
-  if (!session) return { ms: 0 };
+  if (!sessionAlive()) throw new Error("The dither was undone in Photoshop. Press Dither to start again.");
+  const sess = session!;
   const key = settingsKey(s);
-  if (key === session.settingsKey) return { ms: 0 };
+  if (key === sess.settingsKey) return { ms: 0 };
   const t = Date.now();
-  const sess = session;
   await modal("Ditherkit preview", async (ctx) => {
     const doc = activeDoc();
     if (!doc || doc.id !== sess.docId) throw new Error("Switch back to the document you're dithering.");
@@ -368,9 +401,9 @@ function findLayer(layers: any[], id: number): any | null {
 }
 
 export const cancelSession = async (): Promise<void> => {
-  const sess = session;
+  if (!sessionAlive()) return;
+  const sess = session!;
   session = null;
-  if (!sess) return;
   await modal("Ditherkit cancel", async () => {
     const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
     if (doc) await unwind(doc, sess);
@@ -378,8 +411,8 @@ export const cancelSession = async (): Promise<void> => {
 };
 
 export const saveSession = async (s: DitherSettings, output: Output): Promise<string> => {
-  const sess = session;
-  if (!sess) throw new Error("Nothing to save yet. Press Dither first.");
+  if (!sessionAlive()) throw new Error("The dither was undone in Photoshop, so there's nothing to save. Press Dither to start again.");
+  const sess = session!;
   session = null;
   let message = "";
   if (output === "png") {
@@ -409,7 +442,7 @@ export const saveSession = async (s: DitherSettings, output: Output): Promise<st
   return message;
 };
 
-export const isSessionActive = async (): Promise<boolean> => !!session;
+export const isSessionActive = async (): Promise<boolean> => sessionAlive();
 
 // ---------------------------------------------------------------- outputs
 
@@ -518,7 +551,7 @@ export const stopBatch = async (): Promise<void> => { batchStop = true; };
 
 /** Dithers every selected pixel layer with the same settings, each to its own output. One undo step. */
 export const ditherSelected = async (s: DitherSettings, output: Output): Promise<string> => {
-  if (session) throw new Error("Finish the current dither first (Save or Cancel).");
+  if (sessionAlive()) throw new Error("Finish the current dither first (Save or Cancel).");
   if (output === "png") throw new Error("Batch can't export PNG files. Choose another output.");
   batchStop = false;
   let done = 0, total = 0;
