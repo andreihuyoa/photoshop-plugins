@@ -5,7 +5,18 @@ import {
   type ColorMode, type EdgeStyle, type Family, type Levels, type RenderOptions, type RGB,
 } from "@andreihuyoa/dither-engine";
 
-export type Zoom = "fit" | "1:1" | "2:1";
+/** "fit" shows the whole source; a number is preview pixels per document pixel (1 = 100%). */
+export type Zoom = "fit" | number;
+export const ZOOM_STEPS = [0.25, 0.5, 1, 2, 4, 8];
+
+/** What the preview stage shows: a zoom, the document point at its center, and its size in CSS pixels. */
+export interface Viewport {
+  zoom: Zoom;
+  cx: number | null;
+  cy: number | null;
+  width: number;
+  height: number;
+}
 export type Source = "layer" | "merged";
 export type Output = "layer" | "replace" | "separate" | "mask" | "document" | "png";
 
@@ -96,7 +107,6 @@ export interface Prefs {
   appearance: "workbench" | "photoshop";
   checkBeforeDither: boolean;
   source: Source;
-  zoom: Zoom;
   output: Output;
   family: Family;
   open: Record<string, boolean>;
@@ -108,7 +118,6 @@ export const DEFAULT_PREFS: Prefs = {
   appearance: "workbench",
   checkBeforeDither: true,
   source: "layer",
-  zoom: "fit",
   output: "layer",
   family: "diffusion",
   open: { pattern: true, color: true, tone: false, scale: false, output: false },

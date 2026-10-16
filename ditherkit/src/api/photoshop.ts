@@ -9,12 +9,11 @@ import {
 import { photoshop, uxp } from "../globals";
 import {
   activePalette, paletteHex, toEngine,
-  type DitherSettings, type Output, type Source, type Zoom,
+  type DitherSettings, type Output, type Source, type Viewport,
 } from "../shared/settings";
 
 const { app, core, imaging, action, constants } = photoshop;
 const PREVIEW_MAX = 560; // fit preview, longest side (2× the stage for sharp screens)
-const STAGE = { w: 276, h: 180 }; // panel stage size in CSS pixels, for 1:1 and 2:1 crops
 
 // ---------------------------------------------------------------- state
 
@@ -29,10 +28,8 @@ interface SourceState {
   profile: string;
   fit: Pixels;
   fitScale: number;
-  view: Pixels;
-  viewScale: number;
-  viewOrigin: { x: number; y: number };
-  zoom: Zoom;
+  /** Identifies the region last sent as the "before" image, so it's only re-encoded when it changes. */
+  beforeKey: string;
   tiles: Pixels;
   tilesScale: number;
   autoKey: string;
@@ -182,10 +179,10 @@ function resolvedPalette(s: DitherSettings, source: SourceState): { all: string[
   return { all, active: activePalette(s, all) };
 }
 
-function docPixelOrigin(s: DitherSettings, source: SourceState, scale: number): { x: number; y: number } {
+/** Size of one output pixel in document pixels. */
+function docPixel(s: DitherSettings, source: SourceState): number {
   const dpiFactor = s.dpi > 0 ? Math.max(1, source.resolution / s.dpi) : 1;
-  const p = Math.max(1, Math.round(s.pixelSize * dpiFactor * scale));
-  return { x: Math.round((source.viewOrigin.x * scale) / p), y: Math.round((source.viewOrigin.y * scale) / p) };
+  return Math.max(1, Math.round(s.pixelSize * dpiFactor));
 }
 
 // ---------------------------------------------------------------- status and preflight
@@ -239,9 +236,10 @@ export const fixIssue = async (id: Check["id"]): Promise<void> => {
 
 // ---------------------------------------------------------------- source and preview
 
-export interface SourceInfo { info: string; width: number; height: number; beforeUrl: string; histogram: number[] }
+export interface SourceInfo { name: string; width: number; height: number; fitScale: number; histogram: number[] }
 
-export const loadSource = async (source: Source, zoom: Zoom): Promise<SourceInfo> => {
+/** Reads the source at preview size. Full resolution is only read when the preview zooms in or a dither starts. */
+export const loadSource = async (source: Source): Promise<SourceInfo> => {
   if (sessionAlive()) throw new Error("Finish the current dither first (Save or Cancel).");
   ensureNotifications();
   return modal("Ditherkit preview", async () => {
@@ -260,50 +258,81 @@ export const loadSource = async (source: Source, zoom: Zoom): Promise<SourceInfo
     const w = b.right - b.left, h = b.bottom - b.top;
     if (w <= 0 || h <= 0) throw new Error(`“${layer ? layer.name : doc.title}” is empty.`);
 
-    const base: Record<string, unknown> = { documentID: doc.id };
-    if (layer) base.layerID = layer.id;
-    const what = layer ? `“${layer.name}”` : "the document";
-
-    const fitParams = { ...base } as Record<string, unknown>;
-    if (Math.max(w, h) > PREVIEW_MAX) fitParams.targetSize = w >= h ? { width: PREVIEW_MAX } : { height: PREVIEW_MAX };
-    const fit = await grab(fitParams, what);
-    const fitScale = fit.image.width / (fit.bounds.right - fit.bounds.left);
-
-    let view = fit.image, viewScale = fitScale, viewOrigin = { x: 0, y: 0 };
-    if (zoom !== "fit") {
-      const k = zoom === "2:1" ? 2 : 1;
-      const cw = Math.min(Math.round(STAGE.w / k), w), ch = Math.min(Math.round(STAGE.h / k), h);
-      const left = Math.round(b.left + (w - cw) / 2), top = Math.round(b.top + (h - ch) / 2);
-      const c = await grab({ ...base, sourceBounds: { left, top, right: left + cw, bottom: top + ch } }, what);
-      view = c.image; viewScale = 1; viewOrigin = { x: left, y: top };
-    }
+    const params: Record<string, unknown> = { documentID: doc.id };
+    if (layer) params.layerID = layer.id;
+    const fullSize = Math.max(w, h) <= PREVIEW_MAX;
+    if (!fullSize) params.targetSize = w >= h ? { width: PREVIEW_MAX } : { height: PREVIEW_MAX };
+    const fit = await grab(params, layer ? `“${layer.name}”` : "the document");
+    const fitScale = fit.image.width / w;
 
     const tiles = downscale(fit.image, 120);
     src = {
       docId: doc.id, layerId: layer ? layer.id : null, name: layer ? layer.name : "Visible",
       bounds: { left: b.left, top: b.top, right: b.right, bottom: b.bottom }, resolution: doc.resolution ?? 72,
-      profile: fit.profile, fit: fit.image, fitScale, view, viewScale, viewOrigin, zoom,
-      tiles, tilesScale: tiles.width / w, autoKey: "", auto: null, full: null,
+      profile: fit.profile, fit: fit.image, fitScale, beforeKey: "",
+      tiles, tilesScale: tiles.width / w, autoKey: "", auto: null, full: fullSize ? fit.image : null,
     };
-    const zoomLabel = zoom === "fit" ? `${Math.round(fitScale * 100)}%` : zoom === "2:1" ? "200%" : "100%";
-    return {
-      info: `${src.name} · ${Math.round(w)}×${Math.round(h)} · ${zoomLabel}`,
-      width: view.width, height: view.height,
-      beforeUrl: pngDataUrl(view),
-      histogram: histogram(fit.image),
-    };
+    return { name: src.name, width: Math.round(w), height: Math.round(h), fitScale, histogram: histogram(fit.image) };
   });
 };
 
-export interface PreviewResult { url: string; width: number; height: number; palette: string[]; ms: number }
+export interface PreviewResult {
+  url: string;
+  width: number;
+  height: number;
+  palette: string[];
+  ms: number;
+  /** The source pixels behind the preview, only when the visible region changed. */
+  beforeUrl: string | null;
+  /** The region shown, in document pixels, and its scale (preview pixels per document pixel). */
+  view: { x: number; y: number; w: number; h: number; scale: number };
+}
 
-export const renderPreview = async (s: DitherSettings): Promise<PreviewResult | null> => {
+/**
+ * Renders the preview for a viewport. "fit" uses the downsized source. A numeric zoom crops the
+ * full-resolution layer around the viewport's center, sized to the stage, so 100% shows exact pixels
+ * of whatever part of the layer you're looking at.
+ */
+export const renderPreview = async (s: DitherSettings, vp: Viewport): Promise<PreviewResult | null> => {
   if (!src) return null;
+  const source = src;
   const t = Date.now();
-  const { all, active } = resolvedPalette(s, src);
-  const out = render(src.view, toEngine(s, active, src.viewScale, docPixelOrigin(s, src, src.viewScale), src.resolution));
-  return { url: pngDataUrl(out), width: out.width, height: out.height, palette: all, ms: Date.now() - t };
+  const { all, active } = resolvedPalette(s, source);
+  const p = docPixel(s, source);
+  const W = source.bounds.right - source.bounds.left, H = source.bounds.bottom - source.bounds.top;
+
+  let image: Pixels, scale: number, x0 = 0, y0 = 0, key: string;
+  if (vp.zoom === "fit") {
+    image = source.fit;
+    scale = source.fitScale;
+    key = "fit";
+  } else {
+    const full = source.full ?? (await modal("Ditherkit preview", () => fullSource(source)));
+    const cw = Math.min(W, Math.ceil(vp.width / vp.zoom)), ch = Math.min(H, Math.ceil(vp.height / vp.zoom));
+    const cx = (vp.cx ?? source.bounds.left + W / 2) - source.bounds.left;
+    const cy = (vp.cy ?? source.bounds.top + H / 2) - source.bounds.top;
+    // Start the crop on the output-pixel grid, so blocks and patterns match the final render.
+    x0 = Math.max(0, Math.min(W - cw, Math.round(cx - cw / 2)));
+    y0 = Math.max(0, Math.min(H - ch, Math.round(cy - ch / 2)));
+    x0 -= x0 % p;
+    y0 -= y0 % p;
+    image = crop(full, x0 + cw / 2, y0 + ch / 2, cw, ch).image;
+    scale = 1;
+    key = `${x0},${y0},${cw},${ch}`;
+  }
+
+  const origin = { x: Math.round(((source.bounds.left + x0) * scale) / Math.max(1, Math.round(p * scale))), y: Math.round(((source.bounds.top + y0) * scale) / Math.max(1, Math.round(p * scale))) };
+  const out = render(image, toEngine(s, active, scale, origin, source.resolution));
+  const beforeUrl = key !== source.beforeKey ? pngDataUrl(image) : null;
+  source.beforeKey = key;
+  const view = vp.zoom === "fit"
+    ? { x: source.bounds.left, y: source.bounds.top, w: W, h: H, scale }
+    : { x: source.bounds.left + x0, y: source.bounds.top + y0, w: image.width, h: image.height, scale: 1 };
+  return { url: pngDataUrl(out), width: out.width, height: out.height, palette: all, ms: Date.now() - t, beforeUrl, view };
 };
+
+/** Forces the next preview to resend the "before" image (after the panel reloads). */
+export const resetPreviewCache = async (): Promise<void> => { if (src) src.beforeKey = ""; };
 
 /** Small previews of each algorithm with the current settings, for the pattern picker. */
 export const renderTiles = async (s: DitherSettings, ids: string[]): Promise<{ id: string; url: string }[]> => {
@@ -570,7 +599,7 @@ export const ditherSelected = async (s: DitherSettings, output: Output): Promise
         const fit = downscale(g.image, PREVIEW_MAX);
         const one: SourceState = {
           docId: doc.id, layerId: layer.id, name: layer.name, bounds: g.bounds, resolution: doc.resolution ?? 72, profile: g.profile,
-          fit, fitScale: fit.width / g.image.width, view: fit, viewScale: 1, viewOrigin: { x: 0, y: 0 }, zoom: "fit",
+          fit, fitScale: fit.width / g.image.width, beforeKey: "",
           tiles: fit, tilesScale: 1, autoKey: "", auto: null, full: g.image,
         };
         await writeOutput(doc, s, one, renderFull(s, one, g.image), output);

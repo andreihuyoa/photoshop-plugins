@@ -11,6 +11,7 @@ export interface DitherkitAPI {
   fixIssue: Fns["fixIssue"];
   loadSource: Fns["loadSource"];
   renderPreview: Fns["renderPreview"];
+  resetPreviewCache: Fns["resetPreviewCache"];
   renderTiles: Fns["renderTiles"];
   startSession: Fns["startSession"];
   updateSession: Fns["updateSession"];

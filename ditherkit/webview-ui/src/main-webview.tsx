@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
-  ColorField, Dialog, LevelsControl, LiveBadge, Menu, Panel, PluginHeader, PreviewStage, Progress, Section,
+  ChevronDownIcon, ColorField, Dialog, LevelsControl, Menu, Panel, PluginHeader, PresetsIcon, PreviewStage, Progress, Section, SettingsIcon,
   Select, Slider, StageBar, StatusLine, SwatchStrip, Tabs, Toast, Toggle, resolveTheme,
   type MenuItem,
 } from "@andreihuyoa/workbench";
 import { ALGORITHMS, FAMILIES, PALETTES, algorithmInfo, mergeNearDuplicates, parseHex, toHex, type ColorMode, type EdgeStyle, type Family } from "@andreihuyoa/dither-engine";
 import {
   BUILT_IN_PRESETS, DEFAULT_PREFS, DEFAULT_SETTINGS, OUTPUTS, summarize,
-  type DitherSettings, type Output, type Preset, type Prefs, type Source, type Zoom,
+  ZOOM_STEPS, type DitherSettings, type Output, type Preset, type Prefs, type Source, type Zoom,
 } from "../../src/shared/settings";
+import { version as VERSION } from "../../package.json";
 import type { DitherkitAPI, SourceInfo, Status } from "./api-types";
 
-const VERSION = "2.0";
 const MODES: { id: ColorMode; label: string }[] = [
   { id: "mono", label: "Mono" }, { id: "tone", label: "Tone" }, { id: "indexed", label: "Indexed" }, { id: "rgb", label: "RGB" },
 ];
@@ -49,7 +49,12 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const [status, setStatus] = useState<Status | null>(null);
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [sourceError, setSourceError] = useState<string>("");
-  const [preview, setPreview] = useState<{ url: string; width: number; height: number; ms: number } | null>(null);
+  const [preview, setPreview] = useState<{ url: string; width: number; height: number; ms: number; view: { x: number; y: number; w: number; h: number; scale: number } } | null>(null);
+  const [before, setBefore] = useState<string | null>(null);
+  const [vp, setVp] = useState<{ zoom: Zoom; cx: number | null; cy: number | null }>({ zoom: "fit", cx: null, cy: null });
+  const vpRef = useRef(vp);
+  const stageSize = useRef({ w: 276, h: 180 });
+  const toolrow = useRef<HTMLDivElement>(null);
   const [palette, setPalette] = useState<string[]>([]);
   const [tiles, setTiles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -57,7 +62,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const [sessionMs, setSessionMs] = useState(0);
   const [working, setWorking] = useState("");
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
-  const [menu, setMenu] = useState<"main" | "output" | null>(null);
+  const [menu, setMenu] = useState<"settings" | "presets" | "output" | null>(null);
   const [dialog, setDialog] = useState<null | { kind: "preflight" } | { kind: "hex"; index: number; value: string } | { kind: "preset"; name: string }>(null);
   const [toast, setToast] = useState<{ message: string; error?: boolean } | null>(null);
   const [marked, setMarked] = useState<number[]>([]);
@@ -104,8 +109,12 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const renderPreview = useLatest<void>(async () => {
     setBusy(true);
     try {
-      const r = await api.renderPreview(settingsRef.current);
-      if (r) { setPreview({ url: r.url, width: r.width, height: r.height, ms: r.ms }); setPalette(r.palette); }
+      const r = await api.renderPreview(settingsRef.current, { ...vpRef.current, width: stageSize.current.w, height: stageSize.current.h });
+      if (r) {
+        setPreview({ url: r.url, width: r.width, height: r.height, ms: r.ms, view: r.view });
+        if (r.beforeUrl) setBefore(r.beforeUrl);
+        setPalette(r.palette);
+      }
     } catch (e) { fail(e); } finally { setBusy(false); }
   });
 
@@ -152,17 +161,21 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const reloadSource = useCallback(async () => {
     if (sessionRef.current) return;
     try {
-      const info = await api.loadSource(prefs.source, prefs.zoom);
+      const info = await api.loadSource(prefs.source);
       setSource(info);
       setSourceError("");
+      const fit = { zoom: "fit" as Zoom, cx: null, cy: null };
+      vpRef.current = fit;
+      setVp(fit);
       renderPreview();
       renderTiles();
     } catch (e) {
       setSource(null);
       setPreview(null);
+      setBefore(null);
       setSourceError(errMsg(e));
     }
-  }, [api, prefs.source, prefs.zoom, renderPreview, renderTiles]);
+  }, [api, prefs.source, renderPreview, renderTiles]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -184,6 +197,53 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   }, [refreshStatus, reloadSource]);
 
   useEffect(() => { renderTiles(); }, [family, renderTiles]);
+
+  // ---------------------------------------------------------------- preview navigation
+
+  /** How many CSS pixels one document pixel takes up in the stage right now. */
+  const fitScale = preview && source && vp.zoom === "fit"
+    ? Math.min(stageSize.current.w / preview.width, stageSize.current.h / preview.height, 1) * (preview.width / source.width)
+    : null;
+  const currentScale = vp.zoom === "fit" ? fitScale ?? 1 : vp.zoom;
+
+  const navigate = (next: { zoom: Zoom; cx: number | null; cy: number | null }) => {
+    vpRef.current = next;
+    setVp(next);
+    renderPreview();
+  };
+
+  /** Zooms to `zoom`, keeping the document point under (fx, fy) of the current image where it is. */
+  const zoomTo = (zoom: Zoom, anchor?: { fx: number; fy: number }, centerOnAnchor = false) => {
+    if (zoom === "fit") return navigate({ zoom, cx: null, cy: null });
+    const v = preview?.view;
+    if (!v || !anchor) return navigate({ zoom, cx: vpRef.current.cx, cy: vpRef.current.cy });
+    const docX = v.x + anchor.fx * v.w, docY = v.y + anchor.fy * v.h;
+    if (centerOnAnchor) return navigate({ zoom, cx: docX, cy: docY });
+    const cw = stageSize.current.w / zoom, ch = stageSize.current.h / zoom;
+    navigate({ zoom, cx: docX + (0.5 - anchor.fx) * cw, cy: docY + (0.5 - anchor.fy) * ch });
+  };
+  const zoomIn = ZOOM_STEPS.find((z) => z > currentScale + 1e-6);
+  const zoomOutStep = [...ZOOM_STEPS].reverse().find((z) => z < currentScale - 1e-6);
+  // Zooming out to a size where the whole layer already fits goes to Fit instead.
+  const fitsWhole = (z: number) => !source || z * Math.max(source.width / stageSize.current.w, source.height / stageSize.current.h) <= 1;
+  const zoomOutTarget: Zoom | undefined =
+    vp.zoom === "fit" ? undefined : zoomOutStep !== undefined && !fitsWhole(zoomOutStep) ? zoomOutStep : "fit";
+
+  const pan = (dx: number, dy: number) => {
+    if (vp.zoom === "fit" || !preview) return;
+    const v = preview.view;
+    const cx = (vpRef.current.cx ?? v.x + v.w / 2) - dx / vp.zoom;
+    const cy = (vpRef.current.cy ?? v.y + v.h / 2) - dy / vp.zoom;
+    navigate({ zoom: vp.zoom, cx, cy });
+  };
+
+  const resizeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const onStageResize = (w: number, h: number) => {
+    if (Math.abs(w - stageSize.current.w) < 2 && Math.abs(h - stageSize.current.h) < 2) return;
+    stageSize.current = { w, h };
+    clearTimeout(resizeTimer.current);
+    resizeTimer.current = setTimeout(() => { if (vpRef.current.zoom !== "fit") renderPreview(); else setVp({ ...vpRef.current }); }, 150);
+  };
 
   // ---------------------------------------------------------------- session
 
@@ -308,14 +368,17 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
 
   // ---------------------------------------------------------------- menus
 
-  const mainMenu: MenuItem[] = [
-    { kind: "label", label: "Presets" },
+  const presetsMenu: MenuItem[] = [
+    { kind: "label", label: "Built in" },
     ...BUILT_IN_PRESETS.map((p): MenuItem => ({ kind: "item", label: p.name, onSelect: () => applyPreset(p) })),
-    ...prefs.presets.map((p): MenuItem => ({ kind: "item", label: p.name, hint: "yours", onSelect: () => applyPreset(p) })),
+    ...(prefs.presets.length ? [{ kind: "label", label: "Yours" } as MenuItem] : []),
+    ...prefs.presets.map((p): MenuItem => ({ kind: "item", label: p.name, onSelect: () => applyPreset(p) })),
+    { kind: "divider" },
     { kind: "item", label: "Save current as preset…", onSelect: () => setDialog({ kind: "preset", name: "" }) },
     { kind: "item", label: "Import presets…", onSelect: importPresets },
     { kind: "item", label: "Export presets…", disabled: !prefs.presets.length, onSelect: exportPresets },
-    { kind: "divider" },
+  ];
+  const settingsMenu: MenuItem[] = [
     { kind: "label", label: "Appearance" },
     { kind: "item", label: "Workbench", checked: prefs.appearance === "workbench", onSelect: () => setPref("appearance", "workbench") },
     { kind: "item", label: "Photoshop", checked: prefs.appearance === "photoshop", onSelect: () => setPref("appearance", "photoshop") },
@@ -345,26 +408,48 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
       <PluginHeader
         name="Ditherkit"
         version={VERSION}
-        actions={<button className="wb-btn icon" aria-label="Menu" onClick={() => setMenu(menu === "main" ? null : "main")}>···</button>}
+        actions={<button className="wb-btn icon" aria-label="Settings" title="Settings" onClick={() => setMenu(menu === "settings" ? null : "settings")}><SettingsIcon /></button>}
       />
-      {menu === "main" && <Menu items={mainMenu} onClose={() => setMenu(null)} style={{ right: 10, top: 40, maxHeight: "75%", overflowY: "auto" }} />}
+      {menu === "settings" && <Menu items={settingsMenu} onClose={() => setMenu(null)} style={{ right: 10, top: 40, maxHeight: "75%", overflowY: "auto" }} />}
 
       <PreviewStage
         after={preview?.url ?? null}
-        before={source?.beforeUrl ?? null}
+        before={before}
         width={preview?.width ?? 0}
         height={preview?.height ?? 0}
-        zoom={prefs.zoom}
+        scale={vp.zoom === "fit" ? null : vp.zoom}
         busy={busy}
         empty={sourceError || "Select a layer to preview"}
+        onZoomAt={(dir, fx, fy) => {
+          const target = dir > 0 ? zoomIn : zoomOutTarget;
+          if (target !== undefined) zoomTo(target, { fx, fy });
+        }}
+        onPan={pan}
+        onClickAt={(fx, fy) => { if (vp.zoom === "fit") zoomTo(1, { fx, fy }, true); }}
+        onDoubleClick={() => zoomTo("fit")}
+        onResize={onStageResize}
       />
-      <StageBar info={source?.info ?? (status?.hasDoc ? "No preview" : "No document")} zoom={prefs.zoom} onZoom={(z: Zoom) => setPref("zoom", z)} />
-      {session ? (
-        <LiveBadge>{`Live on canvas · ${algorithmInfo(s.algorithm).name}`}</LiveBadge>
-      ) : (
-        <div style={{ margin: "8px 12px 0", flexShrink: 0 }}>
+      <StageBar
+        info={source ? `${source.name} · ${source.width}×${source.height}` : status?.hasDoc ? "No preview" : "No document"}
+        zoomLabel={`${Math.round(currentScale * 100)}%`}
+        fit={vp.zoom === "fit"}
+        canZoomIn={!!source && zoomIn !== undefined}
+        canZoomOut={!!source && zoomOutTarget !== undefined}
+        onZoomIn={() => zoomIn !== undefined && zoomTo(zoomIn, { fx: 0.5, fy: 0.5 })}
+        onZoomOut={() => zoomOutTarget !== undefined && zoomTo(zoomOutTarget, { fx: 0.5, fy: 0.5 })}
+        onFit={() => zoomTo("fit")}
+      />
+      <div className="wb-toolrow" ref={toolrow}>
+        <div className={session ? "src disabled" : "src"} title={session ? "Save or cancel the current dither to change the source" : undefined}>
           <Tabs items={SOURCES} value={prefs.source} onChange={(v) => setPref("source", v)} />
         </div>
+        <button className="wb-btn" onClick={() => setMenu(menu === "presets" ? null : "presets")} aria-haspopup="menu" aria-expanded={menu === "presets"}>
+          <PresetsIcon /> Presets <ChevronDownIcon />
+        </button>
+      </div>
+      {menu === "presets" && (
+        <Menu items={presetsMenu} onClose={() => setMenu(null)}
+          style={{ right: 12, top: (toolrow.current ? toolrow.current.offsetTop + toolrow.current.offsetHeight + 4 : 300), maxHeight: "55%", overflowY: "auto" }} />
       )}
 
       <div className="wb-scroll">
