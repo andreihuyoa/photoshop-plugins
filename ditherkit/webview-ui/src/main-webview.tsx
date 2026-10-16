@@ -255,7 +255,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     if (!source) { setToast({ message: sourceError || "Nothing to dither yet.", error: true }); return; }
     setWorking("Rendering on canvas…");
     try {
-      const r = await api.startSession(settingsRef.current);
+      const r = await api.startSession(settingsRef.current, prefs.output);
       setSession(true);
       setSessionMs(r.ms);
     } catch (e) { fail(e); } finally { setWorking(""); }
@@ -292,6 +292,18 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
       setSession(still);
       if (msg) setToast({ message: msg });
     } catch (e) { fail(e); setSession(await api.isSessionActive()); }
+    setWorking("");
+  };
+
+  /** Picks the output. During a dither the canvas preview is rebuilt to match it. */
+  const chooseOutput = async (output: Output) => {
+    setPref("output", output);
+    if (!sessionRef.current) return;
+    setWorking("Updating preview…");
+    try {
+      const r = await api.setSessionOutput(settingsRef.current, output);
+      if (r.ms) setSessionMs(r.ms);
+    } catch (e) { fail(e); }
     setWorking("");
   };
 
@@ -394,7 +406,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const canBatch = (status?.selectedCount ?? 0) > 1 && prefs.source === "layer" && !session && !batch;
   const outputMenu: MenuItem[] = [
     { kind: "label", label: session ? "Save as" : "Dither, then save as" },
-    ...OUTPUTS.map((o): MenuItem => ({ kind: "item", label: o.label, hint: o.detail, checked: prefs.output === o.id, onSelect: () => setPref("output", o.id) })),
+    ...OUTPUTS.map((o): MenuItem => ({ kind: "item", label: o.label, hint: o.detail, checked: prefs.output === o.id, onSelect: () => chooseOutput(o.id) })),
     ...(canBatch ? [
       { kind: "divider" } as MenuItem,
       { kind: "item", label: `Dither all ${status!.selectedCount} selected layers`, hint: prefs.output === "png" ? "not for PNG" : outputInfo.label, disabled: prefs.output === "png", onSelect: runBatch } as MenuItem,

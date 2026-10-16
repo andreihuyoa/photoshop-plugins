@@ -15,6 +15,7 @@ export interface DitherkitAPI {
   renderTiles: Fns["renderTiles"];
   startSession: Fns["startSession"];
   updateSession: Fns["updateSession"];
+  setSessionOutput: Fns["setSessionOutput"];
   cancelSession: Fns["cancelSession"];
   saveSession: Fns["saveSession"];
   isSessionActive: Fns["isSessionActive"];

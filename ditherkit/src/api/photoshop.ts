@@ -39,7 +39,10 @@ interface SourceState {
 
 interface SessionState {
   docId: number;
-  tempLayerId: number;
+  /** The preview's own layer, or null when the preview lives on the source (a layer mask). */
+  tempLayerId: number | null;
+  /** The output the preview was built for. */
+  output: Output;
   startStateId: number | null;
   source: SourceState;
   settingsKey: string;
@@ -95,11 +98,33 @@ function ensureNotifications(): void {
 function sessionAlive(): boolean {
   if (!session) return false;
   const doc = (app.documents as any[]).find((d) => d.id === session!.docId);
-  if (!doc || !findLayer(doc.layers, session.tempLayerId)) {
-    session = null;
-    return false;
-  }
-  return true;
+  let alive = !!doc;
+  if (alive && session.tempLayerId !== null) alive = !!findLayer(doc.layers, session.tempLayerId);
+  // A mask preview has no layer of its own: it's gone once history is back at the starting state.
+  if (alive && session.tempLayerId === null && session.startStateId !== null) alive = doc.activeHistoryState?.id !== session.startStateId;
+  if (!alive) session = null;
+  return alive;
+}
+
+// ---------------------------------------------------------------- diagnostics
+
+// A step-by-step record of the last save, written to ditherkit-debug.log in the plugin's data folder
+// (~/Library/Application Support/Adobe/UXP/PluginsStorage/PHSP/<version>/Developer/<id>/PluginData on macOS).
+const trace: string[] = [];
+function log(message: string): void {
+  trace.push(`${new Date().toISOString().slice(11, 23)} ${message}`);
+}
+function layerList(doc: any): string {
+  const walk = (layers: any[], depth: number): string[] =>
+    layers.flatMap((l) => [`${"  ".repeat(depth)}${l.name} [${l.kind}${l.visible === false ? ", hidden" : ""}]`, ...(l.layers ? walk(l.layers, depth + 1) : [])]);
+  try { return walk(doc.layers, 1).join("\n"); } catch (e: any) { return `  (couldn't list layers: ${e?.message ?? e})`; }
+}
+async function flushLog(): Promise<void> {
+  try {
+    const folder = await uxp.storage.localFileSystem.getDataFolder();
+    const file = await folder.createFile("ditherkit-debug.log", { overwrite: true });
+    await file.write(trace.join("\n") + "\n", { format: uxp.storage.formats.utf8 });
+  } catch { /* diagnostics must never break saving */ }
 }
 
 // ---------------------------------------------------------------- helpers
@@ -371,25 +396,84 @@ function sameSource(): void {
 
 // ---------------------------------------------------------------- live session
 
-export const startSession = async (s: DitherSettings): Promise<{ ms: number }> => {
+/** What the live preview is for each output: the real thing where it can be shown in place, a labelled layer otherwise. */
+function previewName(s: DitherSettings, output: Output): string {
+  if (output === "layer" || output === "replace") return resultName(s);
+  const label = { separate: "color layers", mask: "layer mask", document: "new document", png: "PNG file" }[output];
+  return `Preview · ${label}`;
+}
+
+/** The dither as a grayscale mask: light pixels reveal the layer, dark ones hide it. */
+function maskPixels(result: Pixels): Uint8Array {
+  const gray = new Uint8Array(result.width * result.height);
+  for (let i = 0; i < gray.length; i++) {
+    const j = i * result.components;
+    const lum = 0.2126 * result.data[j] + 0.7152 * result.data[j + 1] + 0.0722 * result.data[j + 2];
+    gray[i] = result.components === 4 ? (lum * result.data[j + 3]) / 255 : lum;
+  }
+  return gray;
+}
+
+async function ensureMask(layerId: number): Promise<void> {
+  await selectLayer(layerId);
+  try {
+    await action.batchPlay([{ _obj: "make", new: { _class: "channel" }, at: { _ref: "channel", _enum: "channel", _value: "mask" }, using: { _enum: "userMaskEnabled", _value: "revealAll" } }], {});
+  } catch (e: any) { log(`mask: make said: ${e?.message ?? e} (fine if the layer already has one)`); }
+}
+
+/** Builds the live preview for `output` inside an open modal. */
+async function beginSession(doc: any, s: DitherSettings, output: Output, source: SourceState): Promise<void> {
+  const start = doc.activeHistoryState;
+  const result = renderFull(s, source, await fullSource(source));
+  const at = { left: source.bounds.left, top: source.bounds.top };
+  const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
+  let tempLayerId: number | null = null;
+
+  if (output === "mask" && srcLayer) {
+    // Preview the mask on the source itself, exactly as Save will leave it.
+    await ensureMask(srcLayer.id);
+    await putMask(doc.id, srcLayer.id, maskPixels(result), result.width, result.height, at);
+  } else {
+    // New layers go above whatever is active, which isn't always the source. Select the source first,
+    // then move the layer right above it (or to the top of the stack for Visible) to be sure.
+    if (srcLayer) await selectLayer(srcLayer.id);
+    const layer = await doc.createPixelLayer({ name: previewName(s, output) });
+    if (srcLayer) layer.move(srcLayer, constants.ElementPlacement.PLACEBEFORE);
+    else if (doc.layers[0] && doc.layers[0].id !== layer.id) layer.move(doc.layers[0], constants.ElementPlacement.PLACEBEFORE);
+    await putPixels(doc.id, layer.id, result, at, source.profile);
+    if (output === "replace" && srcLayer) srcLayer.visible = false;
+    tempLayerId = layer.id;
+  }
+  session = { docId: doc.id, tempLayerId, output, startStateId: start ? start.id : null, source, settingsKey: settingsKey(s), result };
+  log(`start: output "${output}", history state ${start ? `${start.id} ("${start.name}")` : "none"}, preview ${tempLayerId !== null ? `layer ${tempLayerId}` : `mask on "${srcLayer?.name}"`}`);
+}
+
+export const startSession = async (s: DitherSettings, output: Output): Promise<{ ms: number }> => {
   sameSource();
   const t = Date.now();
   const source = src!;
+  trace.length = 0;
   await modal("Ditherkit", async () => {
     const doc = activeDoc();
-    const start = doc.activeHistoryState;
-    const full = await fullSource(source);
-    const result = renderFull(s, source, full);
-    // New layers go above whatever is active, which isn't always the source. Select the source first,
-    // then move the layer right above it (or to the top of the stack for Visible) to be sure.
-    const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
-    if (srcLayer) await selectLayer(srcLayer.id);
-    const layer = await doc.createPixelLayer({ name: resultName(s) });
-    if (srcLayer) layer.move(srcLayer, constants.ElementPlacement.PLACEBEFORE);
-    else if (doc.layers[0] && doc.layers[0].id !== layer.id) layer.move(doc.layers[0], constants.ElementPlacement.PLACEBEFORE);
-    await putPixels(doc.id, layer.id, result, { left: source.bounds.left, top: source.bounds.top }, source.profile);
-    session = { docId: doc.id, tempLayerId: layer.id, startStateId: start ? start.id : null, source, settingsKey: settingsKey(s), result };
+    await beginSession(doc, s, output, source);
+    log(`start: layers:\n${layerList(doc)}`);
   });
+  await flushLog();
+  return { ms: Date.now() - t };
+};
+
+/** Rebuilds the live preview when the output changes mid-dither, so the canvas always shows what Save will do. */
+export const setSessionOutput = async (s: DitherSettings, output: Output): Promise<{ ms: number }> => {
+  if (!sessionAlive() || session!.output === output) return { ms: 0 };
+  const sess = session!;
+  const t = Date.now();
+  await modal("Ditherkit", async () => {
+    const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
+    if (!doc) throw new Error("The document was closed.");
+    await unwind(doc, sess);
+    await beginSession(doc, s, output, sess.source);
+  });
+  await flushLog();
   return { ms: Date.now() - t };
 };
 
@@ -405,9 +489,14 @@ export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> 
     const suspension = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: "Ditherkit preview" });
     try {
       const result = renderFull(s, sess.source, await fullSource(sess.source));
-      await putPixels(doc.id, sess.tempLayerId, result, { left: sess.source.bounds.left, top: sess.source.bounds.top }, sess.source.profile);
-      const live = findLayer(doc.layers, sess.tempLayerId);
-      if (live && live.name !== resultName(s)) live.name = resultName(s);
+      const at = { left: sess.source.bounds.left, top: sess.source.bounds.top };
+      if (sess.tempLayerId === null) {
+        await putMask(doc.id, sess.source.layerId!, maskPixels(result), result.width, result.height, at);
+      } else {
+        await putPixels(doc.id, sess.tempLayerId, result, at, sess.source.profile);
+        const live = findLayer(doc.layers, sess.tempLayerId);
+        if (live && live.name !== previewName(s, sess.output)) live.name = previewName(s, sess.output);
+      }
       sess.result = result;
       sess.settingsKey = key;
     } finally {
@@ -421,14 +510,26 @@ export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> 
 async function unwind(doc: any, sess: SessionState): Promise<void> {
   // Step history back to before the dither, so the whole session leaves no undo steps behind.
   const state = sess.startStateId !== null ? (doc.historyStates as any[]).find((h) => h.id === sess.startStateId) : null;
+  log(`unwind: start state ${sess.startStateId} ${state ? `found ("${state.name}")` : "not found"}, ${(doc.historyStates as any[]).length} history states, active "${doc.activeHistoryState?.name}"`);
   if (state) {
-    try { doc.activeHistoryState = state; } catch { /* fall through to the checks below */ }
-    if (findLayer(doc.layers, sess.tempLayerId)) {
-      try { await action.batchPlay([{ _obj: "select", _target: [{ _ref: "historyState", _id: state.id }] }], {}); } catch { /* checked below */ }
+    try { doc.activeHistoryState = state; log(`unwind: set activeHistoryState, now "${doc.activeHistoryState?.name}"`); }
+    catch (e: any) { log(`unwind: setting activeHistoryState failed: ${e?.message ?? e}`); }
+    const stillThere = sess.tempLayerId !== null ? !!findLayer(doc.layers, sess.tempLayerId) : doc.activeHistoryState?.id !== state.id;
+    if (stillThere) {
+      log("unwind: preview still there after history step, trying batchPlay select historyState");
+      try { await action.batchPlay([{ _obj: "select", _target: [{ _ref: "historyState", _id: state.id }] }], {}); }
+      catch (e: any) { log(`unwind: batchPlay history select failed: ${e?.message ?? e}`); }
     }
   }
   // Never write an output on top of the live layer: if it's still there, remove it directly.
+  if (sess.tempLayerId === null) {
+    const back = !state || doc.activeHistoryState?.id === state.id;
+    log(`unwind: mask preview ${back ? "removed" : "NOT removed"}`);
+    if (!back) throw new Error("Couldn't undo the preview mask. Undo it in the History panel and try again.");
+    return;
+  }
   const temp = findLayer(doc.layers, sess.tempLayerId);
+  log(`unwind: live layer ${temp ? "still present, deleting it" : "gone"}`);
   if (temp) temp.delete();
   if (findLayer(doc.layers, sess.tempLayerId)) throw new Error("Couldn't remove the live layer. Delete it from the Layers panel and try again.");
 }
@@ -452,6 +553,22 @@ export const cancelSession = async (): Promise<void> => {
 };
 
 export const saveSession = async (s: DitherSettings, output: Output): Promise<string> => {
+  trace.length = 0;
+  log(`save: output "${output}", algorithm ${s.algorithm}, mode ${s.mode}`);
+  try {
+    const message = await saveSessionInner(s, output);
+    log(`save: done, "${message}"`);
+    return message;
+  } catch (e: any) {
+    log(`save: FAILED ${e?.message ?? e}`);
+    throw e;
+  } finally {
+    try { const doc = activeDoc(); if (doc) log(`layers after save:\n${layerList(doc)}`); } catch { /* ignore */ }
+    await flushLog();
+  }
+};
+
+async function saveSessionInner(s: DitherSettings, output: Output): Promise<string> {
   if (!sessionAlive()) throw new Error("The dither was undone in Photoshop, so there's nothing to save. Press Dither to start again.");
   const sess = session!;
   session = null;
@@ -475,13 +592,14 @@ export const saveSession = async (s: DitherSettings, output: Output): Promise<st
     const result = settingsKey(s) === sess.settingsKey && sess.result ? sess.result : renderFull(s, sess.source, await fullSource(sess.source));
     const suspension = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: "Ditherkit" });
     try {
+      log(`save: layers before writing:\n${layerList(doc)}`);
       message = await writeOutput(doc, s, sess.source, result, output);
     } finally {
       await ctx.hostControl.resumeHistory(suspension);
     }
   });
   return message;
-};
+}
 
 export const isSessionActive = async (): Promise<boolean> => sessionAlive();
 
@@ -496,6 +614,7 @@ async function writeOutput(doc: any, s: DitherSettings, source: SourceState, res
   const name = resultName(s);
   const at = { left: source.bounds.left, top: source.bounds.top };
   const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
+  log(`write: output "${output}", source layer ${srcLayer ? `"${srcLayer.name}"` : "none (Visible)"}, result ${result.width}x${result.height}`);
 
   if (output === "layer" || output === "replace") {
     if (srcLayer) await selectLayer(srcLayer.id);
@@ -535,6 +654,7 @@ async function writeOutput(doc: any, s: DitherSettings, source: SourceState, res
       }
       if (!any) continue;
       const c = colors[k];
+      log(`write: color layer ${toHex(c)}`);
       await action.batchPlay([{
         _obj: "make",
         _target: [{ _ref: "contentLayer" }],
@@ -551,17 +671,10 @@ async function writeOutput(doc: any, s: DitherSettings, source: SourceState, res
 
   if (output === "mask") {
     if (!srcLayer) throw new Error("Layer mask output needs a layer as the source.");
-    const gray = new Uint8Array(result.width * result.height);
-    for (let i = 0; i < gray.length; i++) {
-      const j = i * result.components;
-      const lum = 0.2126 * result.data[j] + 0.7152 * result.data[j + 1] + 0.0722 * result.data[j + 2];
-      gray[i] = result.components === 4 ? (lum * result.data[j + 3]) / 255 : lum;
-    }
-    await selectLayer(srcLayer.id);
-    try {
-      await action.batchPlay([{ _obj: "make", new: { _class: "channel" }, at: { _ref: "channel", _enum: "channel", _value: "mask" }, using: { _enum: "userMaskEnabled", _value: "revealAll" } }], {});
-    } catch { /* the layer already has a mask */ }
-    await putMask(doc.id, srcLayer.id, gray, result.width, result.height, at);
+    log("write: adding a layer mask");
+    await ensureMask(srcLayer.id);
+    await putMask(doc.id, srcLayer.id, maskPixels(result), result.width, result.height, at);
+    log("write: mask pixels written");
     return `Masked “${srcLayer.name}” with the dither.`;
   }
 

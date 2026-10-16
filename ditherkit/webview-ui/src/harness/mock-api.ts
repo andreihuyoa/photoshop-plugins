@@ -121,6 +121,7 @@ export function createMockApi(): DitherkitAPI {
       session = true;
       return { ms: Math.round(performance.now() - t) };
     },
+    setSessionOutput: async () => ({ ms: 0 }),
     updateSession: async (s) => {
       const t = performance.now();
       render(FULL, toEngine(s, palette(s).active, 1, { x: 0, y: 0 }));
