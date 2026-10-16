@@ -24,7 +24,9 @@ function sampleImage(w: number, h: number): Pixels {
   return { data, width: w, height: h, components: 4 };
 }
 
-const FULL = sampleImage(1600, 1000);
+// ?size=770x1193 tests a tall layer; the default is a wide one.
+const [SW, SH] = (new URL(location.href).searchParams.get("size") || "1600x1000").split("x").map(Number);
+const FULL = sampleImage(SW || 1600, SH || 1000);
 const FIT = downscale(FULL, 560);
 const fitScale = FIT.width / FULL.width;
 const TILE = downscale(FULL, 120);
