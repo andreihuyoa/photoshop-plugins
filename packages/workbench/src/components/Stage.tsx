@@ -31,6 +31,7 @@ export function PreviewStage(props: PreviewStageProps): ReactElement {
   const { after, before, width, height, scale, busy, empty } = props;
   const [split, setSplit] = useState(0);
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
   const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
@@ -55,7 +56,12 @@ export function PreviewStage(props: PreviewStageProps): ReactElement {
       p.onZoomAt(dir, clamp01((e.clientX - r.left) / r.width), clamp01((e.clientY - r.top) / r.height));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    const ro = new ResizeObserver(() => latest.current.onResize?.(el.clientWidth, el.clientHeight));
+    const measure = () => {
+      setBox({ w: el.clientWidth, h: el.clientHeight });
+      latest.current.onResize?.(el.clientWidth, el.clientHeight);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => { el.removeEventListener("wheel", onWheel); ro.disconnect(); };
   }, []);
@@ -64,9 +70,10 @@ export function PreviewStage(props: PreviewStageProps): ReactElement {
   useEffect(() => { setDrag(null); }, [after]);
 
   const zoomed = scale !== null;
-  const imgStyle: React.CSSProperties = zoomed
-    ? { width: width * scale!, height: height * scale!, maxWidth: "none", maxHeight: "none" }
-    : { maxWidth: "100%", maxHeight: "100%" };
+  // Fit is computed from the measured stage: percentage max-height doesn't constrain an image whose
+  // container has no fixed height, so tall images would overflow.
+  const shown = zoomed ? scale! : fitScale(box, width, height);
+  const imgStyle: React.CSSProperties = { width: width * shown, height: height * shown, maxWidth: "none", maxHeight: "none" };
 
   return (
     <div
@@ -138,6 +145,12 @@ export function PreviewStage(props: PreviewStageProps): ReactElement {
 }
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** CSS pixels per image pixel that fit an image inside a stage of the given size. */
+export function fitScale(stage: { w: number; h: number }, width: number, height: number): number {
+  if (!width || !height || !stage.w || !stage.h) return 1;
+  return Math.min(stage.w / width, stage.h / height);
+}
 
 export interface StageBarProps {
   info: string;

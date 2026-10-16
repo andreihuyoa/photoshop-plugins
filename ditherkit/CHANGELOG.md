@@ -21,6 +21,7 @@ Ditherkit follows [semantic versioning](https://semver.org). Before 1.0, minor v
 
 - Undoing the dither in Photoshop, deleting its layer or closing the document now ends the dither in the panel. Before, the panel kept showing Cancel and Save, and Save applied the dither again.
 - The 100% and 200% previews always showed the middle of the layer, which is often empty (a frame, a logo, text). They now show whatever part of the layer you zoom into.
+- Tall layers overflowed the preview in Fit view, so it showed only part of the layer at the wrong scale and didn't match the canvas. Fit now always shows the whole layer, and the zoom readout matches what's on screen.
 - The live layer could appear a few layers below the source, wherever Photoshop put new layers. It now always sits directly above the source layer (or at the top when the source is Visible).
 
 ## 0.2.0 (2026-10-15)

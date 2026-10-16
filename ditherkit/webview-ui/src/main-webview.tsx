@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
-  ChevronDownIcon, ColorField, Dialog, LevelsControl, Menu, Panel, PluginHeader, PresetsIcon, PreviewStage, Progress, Section, SettingsIcon,
+  ChevronDownIcon, ColorField, fitScale as fitStageScale, Dialog, LevelsControl, Menu, Panel, PluginHeader, PresetsIcon, PreviewStage, Progress, Section, SettingsIcon,
   Select, Slider, StageBar, StatusLine, SwatchStrip, Tabs, Toast, Toggle, resolveTheme,
   type MenuItem,
 } from "@andreihuyoa/workbench";
@@ -201,8 +201,9 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   // ---------------------------------------------------------------- preview navigation
 
   /** How many CSS pixels one document pixel takes up in the stage right now. */
+  // Same formula the stage uses to draw the Fit view, converted to document pixels.
   const fitScale = preview && source && vp.zoom === "fit"
-    ? Math.min(stageSize.current.w / preview.width, stageSize.current.h / preview.height, 1) * (preview.width / source.width)
+    ? fitStageScale(stageSize.current, preview.width, preview.height) * (preview.width / source.width)
     : null;
   const currentScale = vp.zoom === "fit" ? fitScale ?? 1 : vp.zoom;
 

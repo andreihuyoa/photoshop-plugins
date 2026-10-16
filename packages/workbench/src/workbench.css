@@ -142,12 +142,11 @@ html, body, #app { height: 100%; margin: 0; }
   background-size: 12px 12px; background-position: 0 0, 6px 6px;
   display: flex; align-items: center; justify-content: center;
 }
-.wb-stage-frame { position: relative; line-height: 0; max-width: 100%; max-height: 100%; }
+.wb-stage-frame { position: relative; line-height: 0; flex-shrink: 0; }
 .wb-stage { cursor: zoom-in; }
 .wb-stage.zoomed { cursor: grab; }
-.wb-stage.zoomed .wb-stage-frame { max-width: none; max-height: none; flex-shrink: 0; }
 .wb-stage.dragging { cursor: grabbing; }
-.wb-stage img { display: block; image-rendering: pixelated; max-width: 100%; max-height: 180px; }
+.wb-stage img { display: block; image-rendering: pixelated; }
 .wb-stage .wb-before-img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; max-height: none; }
 .wb-split { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wb-accent); cursor: ew-resize; touch-action: none; }
 .wb-split::after { content: ""; position: absolute; top: 50%; left: -6px; width: 14px; height: 14px; margin-top: -7px; background: var(--wb-accent); border-radius: 50%; box-shadow: 0 0 0 2px var(--wb-ground); }
