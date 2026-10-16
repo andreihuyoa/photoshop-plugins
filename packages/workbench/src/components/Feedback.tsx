@@ -11,11 +11,18 @@ export interface MenuProps {
   style?: React.CSSProperties;
 }
 
-/** Popover menu. Closes on outside click and Escape. */
+/**
+ * Popover menu. Closes on outside click and Escape. Put `data-menu-toggle` on the button that opens it:
+ * presses there are left to that button, so clicking it again closes the menu instead of reopening it.
+ */
 export function Menu({ items, onClose, style }: MenuProps): ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const down = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    const down = (e: PointerEvent) => {
+      const target = e.target as Element;
+      if (ref.current?.contains(target) || target.closest?.("[data-menu-toggle]")) return;
+      onClose();
+    };
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("pointerdown", down, true);
     document.addEventListener("keydown", key, true);
