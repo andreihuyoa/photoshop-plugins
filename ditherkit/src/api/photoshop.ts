@@ -380,8 +380,13 @@ export const startSession = async (s: DitherSettings): Promise<{ ms: number }> =
     const start = doc.activeHistoryState;
     const full = await fullSource(source);
     const result = renderFull(s, source, full);
-    const layer = await doc.createPixelLayer({ name: "Ditherkit preview" });
-    if (source.layerId === null && doc.layers[0] && doc.layers[0].id !== layer.id) layer.move(doc.layers[0], constants.ElementPlacement.PLACEBEFORE);
+    // New layers go above whatever is active, which isn't always the source. Select the source first,
+    // then move the layer right above it (or to the top of the stack for Visible) to be sure.
+    const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
+    if (srcLayer) await selectLayer(srcLayer.id);
+    const layer = await doc.createPixelLayer({ name: resultName(s) });
+    if (srcLayer) layer.move(srcLayer, constants.ElementPlacement.PLACEBEFORE);
+    else if (doc.layers[0] && doc.layers[0].id !== layer.id) layer.move(doc.layers[0], constants.ElementPlacement.PLACEBEFORE);
     await putPixels(doc.id, layer.id, result, { left: source.bounds.left, top: source.bounds.top }, source.profile);
     session = { docId: doc.id, tempLayerId: layer.id, startStateId: start ? start.id : null, source, settingsKey: settingsKey(s), result };
   });
@@ -401,6 +406,8 @@ export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> 
     try {
       const result = renderFull(s, sess.source, await fullSource(sess.source));
       await putPixels(doc.id, sess.tempLayerId, result, { left: sess.source.bounds.left, top: sess.source.bounds.top }, sess.source.profile);
+      const live = findLayer(doc.layers, sess.tempLayerId);
+      if (live && live.name !== resultName(s)) live.name = resultName(s);
       sess.result = result;
       sess.settingsKey = key;
     } finally {
@@ -475,8 +482,13 @@ export const isSessionActive = async (): Promise<boolean> => sessionAlive();
 
 // ---------------------------------------------------------------- outputs
 
+/** Name of the layer a dither becomes, also used for the live layer so Save doesn't look like a different layer. */
+function resultName(s: DitherSettings): string {
+  return `Dither · ${algorithmInfo(s.algorithm).name}`;
+}
+
 async function writeOutput(doc: any, s: DitherSettings, source: SourceState, result: Pixels, output: Output): Promise<string> {
-  const name = `Dither · ${algorithmInfo(s.algorithm).name}`;
+  const name = resultName(s);
   const at = { left: source.bounds.left, top: source.bounds.top };
   const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
 
