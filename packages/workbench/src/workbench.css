@@ -271,8 +271,10 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-actions .wb-btn { flex: 1; }
 .wb-actions .wb-btn.grow { flex: 1.5; }
 .wb-split-btn { display: flex; flex: 1.5; }
+.wb-split-btn.wide { flex: 1; }
+.wb-split-btn .wb-btn .wb-kbd { font-size: 10px; margin-left: 4px; }
 .wb-split-btn .wb-btn { flex: 1; border-radius: var(--wb-r) 0 0 var(--wb-r); }
-.wb-split-btn .wb-btn + .wb-btn { flex: 0 0 26px; padding: 0; border-radius: 0 var(--wb-r) var(--wb-r) 0; border-left: 1px solid color-mix(in srgb, var(--wb-on-accent) 35%, transparent); }
+.wb-split-btn .wb-btn + .wb-btn { flex: 0 0 30px; padding: 0; border-radius: 0 var(--wb-r) var(--wb-r) 0; border-left: 1px solid color-mix(in srgb, var(--wb-on-accent) 35%, transparent); }
 
 /* ---------- menus, dialogs, toasts */
 

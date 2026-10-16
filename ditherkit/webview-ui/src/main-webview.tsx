@@ -390,16 +390,21 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     { kind: "item", label: "Refresh preview", onSelect: () => { refreshStatus(); reloadSource(); } },
     { kind: "item", label: "Reset all settings", onSelect: () => applyPreset({ name: "Default", settings: {} }) },
   ];
+  const outputInfo = OUTPUTS.find((o) => o.id === prefs.output)!;
+  const canBatch = (status?.selectedCount ?? 0) > 1 && prefs.source === "layer" && !session && !batch;
   const outputMenu: MenuItem[] = [
-    { kind: "label", label: "Save as" },
+    { kind: "label", label: session ? "Save as" : "Dither, then save as" },
     ...OUTPUTS.map((o): MenuItem => ({ kind: "item", label: o.label, hint: o.detail, checked: prefs.output === o.id, onSelect: () => setPref("output", o.id) })),
+    ...(canBatch ? [
+      { kind: "divider" } as MenuItem,
+      { kind: "item", label: `Dither all ${status!.selectedCount} selected layers`, hint: prefs.output === "png" ? "not for PNG" : outputInfo.label, disabled: prefs.output === "png", onSelect: runBatch } as MenuItem,
+    ] : []),
   ];
 
   // ---------------------------------------------------------------- render
 
   const open = (key: string) => prefs.open[key] !== false;
   const toggle = (key: string) => setPref("open", { ...prefs.open, [key]: !open(key) });
-  const outputInfo = OUTPUTS.find((o) => o.id === prefs.output)!;
   const familyAlgorithms = ALGORITHMS.filter((a) => a.family === family);
   const statusLeft = working || (batch ? `Dithering ${batch.done} of ${batch.total} layers` : status?.hasDoc ? `${status.layerName || status.docName}` : "No document open");
   const statusRight = session ? `${(sessionMs / 1000).toFixed(2)} s` : status?.hasDoc ? status.summary : "";
@@ -546,15 +551,6 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
           {s.alphaThreshold > 0 && <Slider label="Cutoff" value={s.alphaThreshold} min={1} max={255} {...slide("alphaThreshold")} />}
         </Section>
 
-        <Section title="Output" summary={outputInfo.label} open={open("output")} onToggle={() => toggle("output")}>
-          <Select label="Save as" value={prefs.output} onChange={(v) => setPref("output", v)} options={OUTPUTS.map((o) => ({ value: o.id, label: o.label }))} />
-          <div className="wb-hint" style={{ margin: "-2px 0 8px 70px" }}>{outputInfo.detail}</div>
-          {(status?.selectedCount ?? 0) > 1 && prefs.source === "layer" && !session && (
-            <button className="wb-btn small" style={{ width: "100%" }} disabled={!!batch || prefs.output === "png"} onClick={runBatch}>
-              Dither all {status!.selectedCount} selected layers
-            </button>
-          )}
-        </Section>
       </div>
 
       <footer className="wb-foot">
@@ -567,16 +563,23 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
             <>
               <button className="wb-btn" disabled={!!working} onClick={cancel}>Cancel <span className="wb-kbd">esc</span></button>
               <div className="wb-split-btn">
-                <button className="wb-btn primary" disabled={!!working} onClick={() => save()}>Save <span className="wb-kbd">⏎</span></button>
-                <button className="wb-btn primary" aria-label="Save as" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}>▾</button>
+                <button className="wb-btn primary" disabled={!!working} onClick={() => save()} title={`Save as ${outputInfo.label.toLowerCase()} (Enter)`}>
+                  Save <span className="wb-kbd">{outputInfo.label}</span>
+                </button>
+                <button className="wb-btn primary" aria-label="Choose output" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}><ChevronDownIcon /></button>
               </div>
             </>
           ) : (
-            <button className="wb-btn primary" disabled={!!working || !status?.hasDoc} onClick={() => start()}>Dither</button>
+            <div className="wb-split-btn wide">
+              <button className="wb-btn primary" disabled={!!working || !status?.hasDoc} onClick={() => start()} title={`Dither, then save as ${outputInfo.label.toLowerCase()}`}>
+                Dither <span className="wb-kbd">{outputInfo.label}</span>
+              </button>
+              <button className="wb-btn primary" aria-label="Choose output" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}><ChevronDownIcon /></button>
+            </div>
           )}
         </div>
       </footer>
-      {menu === "output" && <Menu items={outputMenu} onClose={() => setMenu(null)} style={{ right: 12, bottom: 54, minWidth: 230 }} />}
+      {menu === "output" && <Menu items={outputMenu} onClose={() => setMenu(null)} style={{ left: 12, right: 12, bottom: 54 }} />}
 
       {toast && <Toast message={toast.message} error={toast.error} onDismiss={() => setToast(null)} />}
 

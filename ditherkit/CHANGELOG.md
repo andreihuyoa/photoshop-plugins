@@ -15,10 +15,12 @@ Ditherkit follows [semantic versioning](https://semver.org). Before 1.0, minor v
 - Settings open from a gear icon in the header. Presets moved out of that menu.
 - Removed the "Live on canvas" banner. Cancel and Save already show that a dither is in progress.
 - The source switch is locked while a dither is in progress, instead of hidden.
+- The Output section is gone. Choose the output from the arrow on the Dither button (or the Save button during a dither), which also shows the output you picked. Batch moved into the same menu.
 - The live layer is named like the result it will become (for example "Dither · Atkinson") instead of "Ditherkit preview", and it's renamed when you change patterns.
 
 ### Fixed
 
+- Every output type could end up looking like a plain new layer. Save removes the live layer by stepping history back before writing the output, and if that step didn't happen, the live layer stayed on top of the real result. Save now checks that the live layer is gone, removes it directly if needed, and only then writes the output you chose.
 - Undoing the dither in Photoshop, deleting its layer or closing the document now ends the dither in the panel. Before, the panel kept showing Cancel and Save, and Save applied the dither again.
 - The 100% and 200% previews always showed the middle of the layer, which is often empty (a frame, a logo, text). They now show whatever part of the layer you zoom into.
 - Tall layers overflowed the preview in Fit view, so it showed only part of the layer at the wrong scale and didn't match the canvas. Fit now always shows the whole layer, and the zoom readout matches what's on screen.

@@ -120,7 +120,7 @@ export const DEFAULT_PREFS: Prefs = {
   source: "layer",
   output: "layer",
   family: "diffusion",
-  open: { pattern: true, color: true, tone: false, scale: false, output: false },
+  open: { pattern: true, color: true, tone: false, scale: false },
   settings: DEFAULT_SETTINGS,
   presets: [],
 };
