@@ -126,7 +126,7 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-btn.primary { background: var(--wb-accent); color: var(--wb-on-accent); box-shadow: none; }
 .wb-btn.primary:hover { filter: brightness(1.08); }
 .wb-btn.small { padding: 3px 8px; font-size: 11px; font-weight: 500; }
-.wb-btn.icon { padding: 2px 6px; box-shadow: none; color: var(--wb-muted); font-size: 15px; line-height: 1; }
+.wb-btn.icon { padding: 4px; box-shadow: none; color: var(--wb-muted); font-size: 15px; line-height: 1; }
 .wb-btn.icon:hover { color: var(--wb-ink); }
 .wb-btn.danger { color: var(--wb-danger); }
 .wb-kbd { font-family: var(--wb-mono); font-size: 9px; font-weight: 400; opacity: 0.65; }
@@ -143,6 +143,10 @@ html, body, #app { height: 100%; margin: 0; }
   display: flex; align-items: center; justify-content: center;
 }
 .wb-stage-frame { position: relative; line-height: 0; max-width: 100%; max-height: 100%; }
+.wb-stage { cursor: zoom-in; }
+.wb-stage.zoomed { cursor: grab; }
+.wb-stage.zoomed .wb-stage-frame { max-width: none; max-height: none; flex-shrink: 0; }
+.wb-stage.dragging { cursor: grabbing; }
 .wb-stage img { display: block; image-rendering: pixelated; max-width: 100%; max-height: 180px; }
 .wb-stage .wb-before-img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; max-height: none; }
 .wb-split { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--wb-accent); cursor: ew-resize; touch-action: none; }
@@ -154,6 +158,16 @@ html, body, #app { height: 100%; margin: 0; }
 .wb-zoom { display: flex; gap: 2px; flex-shrink: 0; }
 .wb-zoom button { appearance: none; border: 0; background: transparent; color: var(--wb-muted); font: inherit; padding: 1px 5px; border-radius: var(--wb-r-sm); cursor: pointer; }
 .wb-zoom button.on { background: var(--wb-sel); color: var(--wb-on-sel); }
+.wb-zoom button:disabled { opacity: 0.35; cursor: default; }
+.wb-zoom-label { min-width: 34px; text-align: center; color: var(--wb-ink); }
+
+/* ---------- toolbar row under the stage */
+
+.wb-toolrow { display: flex; gap: 6px; align-items: stretch; margin: 8px 12px 0; flex-shrink: 0; }
+.wb-toolrow .src { flex: 1; min-width: 0; }
+.wb-toolrow .src .wb-tabs { margin-bottom: 0; height: 100%; }
+.wb-toolrow .src.disabled { opacity: 0.45; pointer-events: none; }
+.wb-toolrow .wb-btn { padding: 4px 9px; font-size: 11px; font-weight: 500; }
 
 .wb-live { display: flex; align-items: center; gap: 6px; margin: 8px 12px 0; padding: 5px 8px; flex-shrink: 0;
   background: color-mix(in srgb, var(--wb-live) 14%, transparent); color: var(--wb-live); font-family: var(--wb-mono); font-size: 10px; border-radius: var(--wb-r-sm); }

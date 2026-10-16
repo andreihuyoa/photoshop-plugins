@@ -1,44 +1,107 @@
-import { useRef, useState, type ReactElement } from "react";
-
-export type Zoom = "fit" | "1:1" | "2:1";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 
 export interface PreviewStageProps {
   /** Data URL of the processed image. */
   after: string | null;
   /** Data URL of the source, shown left of the split line. */
   before: string | null;
+  /** Image size in pixels. */
   width: number;
   height: number;
-  zoom: Zoom;
+  /** null fits the image to the stage; a number draws each image pixel that many CSS pixels wide. */
+  scale: number | null;
   busy?: boolean;
   empty?: string;
+  /** Wheel or pinch over the image: direction +1 zooms in, -1 out, around the pointer (fractions of the image). */
+  onZoomAt?: (direction: 1 | -1, fx: number, fy: number) => void;
+  /** A drag ended, moved by this many CSS pixels. */
+  onPan?: (dx: number, dy: number) => void;
+  /** A click without dragging, at fractions of the image. */
+  onClickAt?: (fx: number, fy: number) => void;
+  onDoubleClick?: () => void;
+  /** Reports the stage's size in CSS pixels, so zoomed previews can be rendered to fit it. */
+  onResize?: (width: number, height: number) => void;
 }
 
 /**
- * Pixel-exact preview with a draggable before/after split. At 2:1 the image is drawn at twice its size,
- * nearest-neighbour, so dither patterns stay crisp.
+ * Pixel-exact preview with a before/after split. Zoomed images are drawn nearest-neighbour so dither
+ * patterns stay crisp. Dragging moves the image immediately; the host re-renders when the drag ends.
  */
-export function PreviewStage({ after, before, width, height, zoom, busy, empty }: PreviewStageProps): ReactElement {
+export function PreviewStage(props: PreviewStageProps): ReactElement {
+  const { after, before, width, height, scale, busy, empty } = props;
   const [split, setSplit] = useState(0);
+  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const press = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const splitting = useRef(false);
+  const wheel = useRef(0);
+  const latest = useRef(props);
+  latest.current = props;
 
-  const scale = zoom === "2:1" ? 2 : 1;
-  const style = zoom === "fit"
-    ? { maxWidth: "100%", maxHeight: 180 }
-    : { width: width * scale, height: height * scale, maxWidth: "none", maxHeight: "none" };
+  // Wheel needs a non-passive listener to stop the panel from scrolling while zooming.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const p = latest.current;
+      if (!p.after || !p.onZoomAt || !frame.current) return;
+      e.preventDefault();
+      wheel.current += e.deltaY;
+      if (Math.abs(wheel.current) < 40) return;
+      const dir = wheel.current < 0 ? 1 : -1;
+      wheel.current = 0;
+      const r = frame.current.getBoundingClientRect();
+      p.onZoomAt(dir, clamp01((e.clientX - r.left) / r.width), clamp01((e.clientY - r.top) / r.height));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    const ro = new ResizeObserver(() => latest.current.onResize?.(el.clientWidth, el.clientHeight));
+    ro.observe(el);
+    return () => { el.removeEventListener("wheel", onWheel); ro.disconnect(); };
+  }, []);
 
-  const move = (clientX: number) => {
-    const r = frame.current?.getBoundingClientRect();
-    if (!r) return;
-    setSplit(Math.min(1, Math.max(0, (clientX - r.left) / r.width)));
-  };
+  // A new image means the host has caught up with the drag.
+  useEffect(() => { setDrag(null); }, [after]);
+
+  const zoomed = scale !== null;
+  const imgStyle: React.CSSProperties = zoomed
+    ? { width: width * scale!, height: height * scale!, maxWidth: "none", maxHeight: "none" }
+    : { maxWidth: "100%", maxHeight: "100%" };
 
   return (
-    <div className="wb-stage">
+    <div
+      ref={stage}
+      className={`wb-stage${zoomed ? " zoomed" : ""}${drag ? " dragging" : ""}`}
+      onPointerDown={(e) => {
+        if (!after || splitting.current) return;
+        press.current = { x: e.clientX, y: e.clientY, moved: false };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const p = press.current;
+        if (!p) return;
+        const dx = e.clientX - p.x, dy = e.clientY - p.y;
+        if (!p.moved && Math.hypot(dx, dy) > 3) p.moved = true;
+        if (p.moved && zoomed) setDrag({ x: dx, y: dy });
+      }}
+      onPointerUp={(e) => {
+        const p = press.current;
+        press.current = null;
+        if (!p || !frame.current) return;
+        if (p.moved) {
+          if (zoomed) props.onPan?.(e.clientX - p.x, e.clientY - p.y);
+        } else {
+          const r = frame.current.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+            props.onClickAt?.((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+          }
+        }
+      }}
+      onDoubleClick={() => props.onDoubleClick?.()}
+    >
       {after ? (
-        <div className="wb-stage-frame" ref={frame}>
-          <img src={after} alt="Dithered preview" style={style} draggable={false} />
+        <div className="wb-stage-frame" ref={frame} style={drag ? { transform: `translate(${drag.x}px, ${drag.y}px)` } : undefined}>
+          <img src={after} alt="Dithered preview" style={imgStyle} draggable={false} />
           {before && split > 0 && (
             <img className="wb-before-img" src={before} alt="" draggable={false}
               style={{ clipPath: `inset(0 ${100 - split * 100}% 0 0)` }} />
@@ -51,9 +114,14 @@ export function PreviewStage({ after, before, width, height, zoom, busy, empty }
               aria-valuenow={Math.round(split * 100)}
               tabIndex={0}
               style={{ left: `${split * 100}%` }}
-              onPointerDown={(e) => { dragging.current = true; e.currentTarget.setPointerCapture(e.pointerId); }}
-              onPointerMove={(e) => dragging.current && move(e.clientX)}
-              onPointerUp={() => { dragging.current = false; }}
+              onPointerDown={(e) => { e.stopPropagation(); splitting.current = true; e.currentTarget.setPointerCapture(e.pointerId); }}
+              onPointerMove={(e) => {
+                if (!splitting.current || !frame.current) return;
+                const r = frame.current.getBoundingClientRect();
+                setSplit(clamp01((e.clientX - r.left) / r.width));
+              }}
+              onPointerUp={(e) => { e.stopPropagation(); splitting.current = false; }}
+              onDoubleClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 if (e.key === "ArrowLeft") setSplit((s) => Math.max(0, s - 0.05));
                 if (e.key === "ArrowRight") setSplit((s) => Math.min(1, s + 0.05));
@@ -69,20 +137,29 @@ export function PreviewStage({ after, before, width, height, zoom, busy, empty }
   );
 }
 
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
 export interface StageBarProps {
   info: string;
-  zoom: Zoom;
-  onZoom: (z: Zoom) => void;
+  /** Shown between the zoom buttons, e.g. "100%" or "Fit". */
+  zoomLabel: string;
+  fit: boolean;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFit: () => void;
 }
 
-export function StageBar({ info, zoom, onZoom }: StageBarProps): ReactElement {
+export function StageBar({ info, zoomLabel, fit, canZoomIn, canZoomOut, onZoomIn, onZoomOut, onFit }: StageBarProps): ReactElement {
   return (
     <div className="wb-stagebar">
       <span title={info}>{info}</span>
       <span className="wb-zoom">
-        {(["fit", "1:1", "2:1"] as Zoom[]).map((z) => (
-          <button key={z} className={z === zoom ? "on" : ""} onClick={() => onZoom(z)}>{z === "fit" ? "Fit" : z}</button>
-        ))}
+        <button onClick={onZoomOut} disabled={!canZoomOut} aria-label="Zoom out" title="Zoom out">−</button>
+        <span className="wb-zoom-label">{zoomLabel}</span>
+        <button onClick={onZoomIn} disabled={!canZoomIn} aria-label="Zoom in" title="Zoom in">+</button>
+        <button className={fit ? "on" : ""} onClick={onFit} title="Fit the whole layer">Fit</button>
       </span>
     </div>
   );
