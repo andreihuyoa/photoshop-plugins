@@ -1,10 +1,10 @@
 # Changelog
 
-Ditherkit follows [semantic versioning](https://semver.org). Before 1.0, minor versions add features and patch versions only fix bugs.
+Ditherkit follows [semantic versioning](https://semver.org): patch versions fix bugs, minor versions add features, and major versions change how existing features work.
 
-## 0.1.0 (unreleased)
+## 1.0.0 (2026-10-16)
 
-First version.
+First release.
 
 - 31 patterns in six families (diffusion, ordered, halftone, mosaic, noise, modulation), picked from thumbnails rendered from your own image.
 - Mono, tone, indexed and RGB color modes. Indexed palettes can be built in, pulled from the image or your own, with .ase, .aco and .gpl import, .gpl export, and swatches you can mute, merge or edit.
