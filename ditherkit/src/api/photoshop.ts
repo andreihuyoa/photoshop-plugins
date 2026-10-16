@@ -37,20 +37,7 @@ interface SourceState {
   full: Pixels | null;
 }
 
-interface SessionState {
-  docId: number;
-  /** The preview's own layer, or null when the preview lives on the source (a layer mask). */
-  tempLayerId: number | null;
-  /** The output the preview was built for. */
-  output: Output;
-  startStateId: number | null;
-  source: SourceState;
-  settingsKey: string;
-  result: Pixels | null;
-}
-
 let src: SourceState | null = null;
-let session: SessionState | null = null;
 let batchStop = false;
 
 type Listener = (event: string) => void;
@@ -78,32 +65,9 @@ function ensureNotifications(): void {
   if (notifying) return;
   notifying = true;
   action.addNotificationListener(EVENTS, (event: string) => {
-    const own = ownEdits > 0 || Date.now() < ownEditUntil;
-    if (session) {
-      if (own) return;
-      // The user can undo the live layer away (or delete it, or close the document). End the session
-      // so the panel goes back to Dither instead of offering to save something that's gone.
-      if (!sessionAlive()) { changeListener?.("session-ended"); return; }
-      // Stepping through history may have rolled back the last update: render fresh on the next change or save.
-      if (event === "historyStateChanged") session.settingsKey = "";
-      if (event !== "select" && event !== "close") return;
-    } else if (own) {
-      return;
-    }
+    if (ownEdits > 0 || Date.now() < ownEditUntil) return;
     changeListener?.(event);
   });
-}
-
-/** True while the live layer still exists. Clears the session when it doesn't. */
-function sessionAlive(): boolean {
-  if (!session) return false;
-  const doc = (app.documents as any[]).find((d) => d.id === session!.docId);
-  let alive = !!doc;
-  if (alive && session.tempLayerId !== null) alive = !!findLayer(doc.layers, session.tempLayerId);
-  // A mask preview has no layer of its own: it's gone once history is back at the starting state.
-  if (alive && session.tempLayerId === null && session.startStateId !== null) alive = doc.activeHistoryState?.id !== session.startStateId;
-  if (!alive) session = null;
-  return alive;
 }
 
 // ---------------------------------------------------------------- diagnostics
@@ -180,8 +144,6 @@ async function putMask(docId: number, layerId: number, gray: Uint8Array, width: 
   }
 }
 
-const settingsKey = (s: DitherSettings) => JSON.stringify(s);
-
 function crop(img: Pixels, cx: number, cy: number, w: number, h: number): { image: Pixels; x: number; y: number } {
   const cw = Math.min(w, img.width), ch = Math.min(h, img.height);
   const x0 = Math.max(0, Math.min(img.width - cw, Math.round(cx - cw / 2)));
@@ -221,14 +183,13 @@ export interface Status {
   summary: string;
   checks: Check[];
   ready: boolean;
-  session: boolean;
 }
 
 export const getStatus = async (source: Source): Promise<Status> => {
   ensureNotifications();
   const doc = activeDoc();
   if (!doc) {
-    return { hasDoc: false, docName: "", layerName: "", selectedCount: 0, summary: "No document open", checks: [], ready: false, session: sessionAlive() };
+    return { hasDoc: false, docName: "", layerName: "", selectedCount: 0, summary: "No document open", checks: [], ready: false, };
   }
   const layers = doc.activeLayers as any[];
   const layer = layers[0];
@@ -246,7 +207,7 @@ export const getStatus = async (source: Source): Promise<Status> => {
   ];
   const ready = layerOk && mode && bits;
   const summary = [mode ? "RGB" : "Not RGB", bits ? "8-bit" : "Not 8-bit", srgb ? "sRGB" : profile.slice(0, 18)].join(" · ");
-  return { hasDoc: true, docName: doc.title ?? doc.name, layerName: source === "merged" ? "Visible" : layer?.name ?? "", selectedCount: layers.length, summary, checks, ready, session: sessionAlive() };
+  return { hasDoc: true, docName: doc.title ?? doc.name, layerName: source === "merged" ? "Visible" : layer?.name ?? "", selectedCount: layers.length, summary, checks, ready };
 };
 
 export const fixIssue = async (id: Check["id"]): Promise<void> => {
@@ -265,7 +226,6 @@ export interface SourceInfo { name: string; width: number; height: number; fitSc
 
 /** Reads the source at preview size. Full resolution is only read when the preview zooms in or a dither starts. */
 export const loadSource = async (source: Source): Promise<SourceInfo> => {
-  if (sessionAlive()) throw new Error("Finish the current dither first (Save or Cancel).");
   ensureNotifications();
   return modal("Ditherkit preview", async () => {
     const doc = activeDoc();
@@ -394,14 +354,7 @@ function sameSource(): void {
   if (!src || !doc || doc.id !== src.docId) throw new Error("The document changed. Refresh the preview and try again.");
 }
 
-// ---------------------------------------------------------------- live session
-
-/** What the live preview is for each output: the real thing where it can be shown in place, a labelled layer otherwise. */
-function previewName(s: DitherSettings, output: Output): string {
-  if (output === "layer" || output === "replace") return resultName(s);
-  const label = { separate: "color layers", mask: "layer mask", document: "new document", png: "PNG file" }[output];
-  return `Preview · ${label}`;
-}
+// ---------------------------------------------------------------- apply
 
 /** The dither as a grayscale mask: light pixels reveal the layer, dark ones hide it. */
 function maskPixels(result: Pixels): Uint8Array {
@@ -421,119 +374,6 @@ async function ensureMask(layerId: number): Promise<void> {
   } catch (e: any) { log(`mask: make said: ${e?.message ?? e} (fine if the layer already has one)`); }
 }
 
-/** Builds the live preview for `output` inside an open modal. */
-async function beginSession(doc: any, s: DitherSettings, output: Output, source: SourceState): Promise<void> {
-  const start = doc.activeHistoryState;
-  const result = renderFull(s, source, await fullSource(source));
-  const at = { left: source.bounds.left, top: source.bounds.top };
-  const srcLayer = source.layerId !== null ? findLayer(doc.layers, source.layerId) : null;
-  let tempLayerId: number | null = null;
-
-  if (output === "mask" && srcLayer) {
-    // Preview the mask on the source itself, exactly as Save will leave it.
-    await ensureMask(srcLayer.id);
-    await putMask(doc.id, srcLayer.id, maskPixels(result), result.width, result.height, at);
-  } else {
-    // New layers go above whatever is active, which isn't always the source. Select the source first,
-    // then move the layer right above it (or to the top of the stack for Visible) to be sure.
-    if (srcLayer) await selectLayer(srcLayer.id);
-    const layer = await doc.createPixelLayer({ name: previewName(s, output) });
-    if (srcLayer) layer.move(srcLayer, constants.ElementPlacement.PLACEBEFORE);
-    else if (doc.layers[0] && doc.layers[0].id !== layer.id) layer.move(doc.layers[0], constants.ElementPlacement.PLACEBEFORE);
-    await putPixels(doc.id, layer.id, result, at, source.profile);
-    if (output === "replace" && srcLayer) srcLayer.visible = false;
-    tempLayerId = layer.id;
-  }
-  session = { docId: doc.id, tempLayerId, output, startStateId: start ? start.id : null, source, settingsKey: settingsKey(s), result };
-  log(`start: output "${output}", history state ${start ? `${start.id} ("${start.name}")` : "none"}, preview ${tempLayerId !== null ? `layer ${tempLayerId}` : `mask on "${srcLayer?.name}"`}`);
-}
-
-export const startSession = async (s: DitherSettings, output: Output): Promise<{ ms: number }> => {
-  sameSource();
-  const t = Date.now();
-  const source = src!;
-  trace.length = 0;
-  await modal("Ditherkit", async () => {
-    const doc = activeDoc();
-    await beginSession(doc, s, output, source);
-    log(`start: layers:\n${layerList(doc)}`);
-  });
-  await flushLog();
-  return { ms: Date.now() - t };
-};
-
-/** Rebuilds the live preview when the output changes mid-dither, so the canvas always shows what Save will do. */
-export const setSessionOutput = async (s: DitherSettings, output: Output): Promise<{ ms: number }> => {
-  if (!sessionAlive() || session!.output === output) return { ms: 0 };
-  const sess = session!;
-  const t = Date.now();
-  await modal("Ditherkit", async () => {
-    const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
-    if (!doc) throw new Error("The document was closed.");
-    await unwind(doc, sess);
-    await beginSession(doc, s, output, sess.source);
-  });
-  await flushLog();
-  return { ms: Date.now() - t };
-};
-
-export const updateSession = async (s: DitherSettings): Promise<{ ms: number }> => {
-  if (!sessionAlive()) throw new Error("The dither was undone in Photoshop. Press Dither to start again.");
-  const sess = session!;
-  const key = settingsKey(s);
-  if (key === sess.settingsKey) return { ms: 0 };
-  const t = Date.now();
-  await modal("Ditherkit preview", async (ctx) => {
-    const doc = activeDoc();
-    if (!doc || doc.id !== sess.docId) throw new Error("Switch back to the document you're dithering.");
-    const suspension = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: "Ditherkit preview" });
-    try {
-      const result = renderFull(s, sess.source, await fullSource(sess.source));
-      const at = { left: sess.source.bounds.left, top: sess.source.bounds.top };
-      if (sess.tempLayerId === null) {
-        await putMask(doc.id, sess.source.layerId!, maskPixels(result), result.width, result.height, at);
-      } else {
-        await putPixels(doc.id, sess.tempLayerId, result, at, sess.source.profile);
-        const live = findLayer(doc.layers, sess.tempLayerId);
-        if (live && live.name !== previewName(s, sess.output)) live.name = previewName(s, sess.output);
-      }
-      sess.result = result;
-      sess.settingsKey = key;
-    } finally {
-      await ctx.hostControl.resumeHistory(suspension);
-    }
-  });
-  return { ms: Date.now() - t };
-};
-
-/** Removes the live layer and everything the session added to history. */
-async function unwind(doc: any, sess: SessionState): Promise<void> {
-  // Step history back to before the dither, so the whole session leaves no undo steps behind.
-  const state = sess.startStateId !== null ? (doc.historyStates as any[]).find((h) => h.id === sess.startStateId) : null;
-  log(`unwind: start state ${sess.startStateId} ${state ? `found ("${state.name}")` : "not found"}, ${(doc.historyStates as any[]).length} history states, active "${doc.activeHistoryState?.name}"`);
-  if (state) {
-    try { doc.activeHistoryState = state; log(`unwind: set activeHistoryState, now "${doc.activeHistoryState?.name}"`); }
-    catch (e: any) { log(`unwind: setting activeHistoryState failed: ${e?.message ?? e}`); }
-    const stillThere = sess.tempLayerId !== null ? !!findLayer(doc.layers, sess.tempLayerId) : doc.activeHistoryState?.id !== state.id;
-    if (stillThere) {
-      log("unwind: preview still there after history step, trying batchPlay select historyState");
-      try { await action.batchPlay([{ _obj: "select", _target: [{ _ref: "historyState", _id: state.id }] }], {}); }
-      catch (e: any) { log(`unwind: batchPlay history select failed: ${e?.message ?? e}`); }
-    }
-  }
-  // Never write an output on top of the live layer: if it's still there, remove it directly.
-  if (sess.tempLayerId === null) {
-    const back = !state || doc.activeHistoryState?.id === state.id;
-    log(`unwind: mask preview ${back ? "removed" : "NOT removed"}`);
-    if (!back) throw new Error("Couldn't undo the preview mask. Undo it in the History panel and try again.");
-    return;
-  }
-  const temp = findLayer(doc.layers, sess.tempLayerId);
-  log(`unwind: live layer ${temp ? "still present, deleting it" : "gone"}`);
-  if (temp) temp.delete();
-  if (findLayer(doc.layers, sess.tempLayerId)) throw new Error("Couldn't remove the live layer. Delete it from the Layers panel and try again.");
-}
-
 function findLayer(layers: any[], id: number): any | null {
   for (const l of layers) {
     if (l.id === id) return l;
@@ -542,70 +382,51 @@ function findLayer(layers: any[], id: number): any | null {
   return null;
 }
 
-export const cancelSession = async (): Promise<void> => {
-  if (!sessionAlive()) return;
-  const sess = session!;
-  session = null;
-  await modal("Ditherkit cancel", async () => {
-    const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
-    if (doc) await unwind(doc, sess);
-  });
-};
-
-export const saveSession = async (s: DitherSettings, output: Output): Promise<string> => {
+/**
+ * Renders the dither at full resolution and writes it as `output`, as a single undo step.
+ * PNG export asks for a file first, since a save dialog can't open inside a modal.
+ */
+export const applyDither = async (s: DitherSettings, output: Output): Promise<{ message: string; ms: number }> => {
+  sameSource();
+  const source = src!;
+  const t = Date.now();
   trace.length = 0;
-  log(`save: output "${output}", algorithm ${s.algorithm}, mode ${s.mode}`);
+  log(`apply: output "${output}", algorithm ${s.algorithm}, mode ${s.mode}`);
   try {
-    const message = await saveSessionInner(s, output);
-    log(`save: done, "${message}"`);
-    return message;
+    let message = "";
+    if (output === "png") {
+      const file = await uxp.storage.localFileSystem.getFileForSaving(`${source.name.replace(/[^\w-]+/g, "-")}-dither.png`, { types: ["png"] });
+      if (!file) return { message: "Export cancelled.", ms: 0 };
+      await modal("Ditherkit", async () => {
+        await writePng(renderFull(s, source, await fullSource(source)), source, file);
+      });
+      message = `Saved ${file.name}.`;
+    } else {
+      await modal("Ditherkit", async (ctx) => {
+        const doc = activeDoc();
+        const result = renderFull(s, source, await fullSource(source));
+        const suspension = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: "Ditherkit" });
+        try {
+          message = await writeOutput(doc, s, source, result, output);
+        } finally {
+          await ctx.hostControl.resumeHistory(suspension);
+        }
+      });
+    }
+    log(`apply: done, "${message}"`);
+    return { message, ms: Date.now() - t };
   } catch (e: any) {
-    log(`save: FAILED ${e?.message ?? e}`);
+    log(`apply: FAILED ${e?.message ?? e}`);
     throw e;
   } finally {
-    try { const doc = activeDoc(); if (doc) log(`layers after save:\n${layerList(doc)}`); } catch { /* ignore */ }
+    try { const doc = activeDoc(); if (doc) log(`layers after:\n${layerList(doc)}`); } catch { /* ignore */ }
     await flushLog();
   }
 };
 
-async function saveSessionInner(s: DitherSettings, output: Output): Promise<string> {
-  if (!sessionAlive()) throw new Error("The dither was undone in Photoshop, so there's nothing to save. Press Dither to start again.");
-  const sess = session!;
-  session = null;
-  let message = "";
-  if (output === "png") {
-    // Saving a file needs a dialog, which can't open inside a modal. Ask first, then write.
-    const file = await uxp.storage.localFileSystem.getFileForSaving(`${sess.source.name.replace(/[^\w-]+/g, "-")}-dither.png`, { types: ["png"] });
-    if (!file) { session = sess; return "Save cancelled."; }
-    await modal("Ditherkit", async () => {
-      const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
-      if (doc) await unwind(doc, sess);
-      const result = settingsKey(s) === sess.settingsKey && sess.result ? sess.result : renderFull(s, sess.source, await fullSource(sess.source));
-      await writePng(result, sess.source, file);
-    });
-    return `Saved ${file.name}.`;
-  }
-  await modal("Ditherkit", async (ctx) => {
-    const doc = (app.documents as any[]).find((d) => d.id === sess.docId);
-    if (!doc) throw new Error("The document was closed.");
-    await unwind(doc, sess);
-    const result = settingsKey(s) === sess.settingsKey && sess.result ? sess.result : renderFull(s, sess.source, await fullSource(sess.source));
-    const suspension = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: "Ditherkit" });
-    try {
-      log(`save: layers before writing:\n${layerList(doc)}`);
-      message = await writeOutput(doc, s, sess.source, result, output);
-    } finally {
-      await ctx.hostControl.resumeHistory(suspension);
-    }
-  });
-  return message;
-}
-
-export const isSessionActive = async (): Promise<boolean> => sessionAlive();
-
 // ---------------------------------------------------------------- outputs
 
-/** Name of the layer a dither becomes, also used for the live layer so Save doesn't look like a different layer. */
+/** Name of the layer a dither becomes. */
 function resultName(s: DitherSettings): string {
   return `Dither · ${algorithmInfo(s.algorithm).name}`;
 }
@@ -710,7 +531,6 @@ export const stopBatch = async (): Promise<void> => { batchStop = true; };
 
 /** Dithers every selected pixel layer with the same settings, each to its own output. One undo step. */
 export const ditherSelected = async (s: DitherSettings, output: Output): Promise<string> => {
-  if (sessionAlive()) throw new Error("Finish the current dither first (Save or Cancel).");
   if (output === "png") throw new Error("Batch can't export PNG files. Choose another output.");
   batchStop = false;
   let done = 0, total = 0;
@@ -805,10 +625,11 @@ export const getSwatchColors = async (): Promise<{ foreground: string; backgroun
 
 // ---------------------------------------------------------------- preferences
 
-const PREFS_KEY = "ditherkit.v2.prefs";
+const PREFS_KEY = "ditherkit.prefs";
+const OLD_PREFS_KEY = "ditherkit.v2.prefs"; // used by development builds; read once so saved presets carry over
 
 export const loadPrefs = async (): Promise<string | null> => {
-  try { return localStorage.getItem(PREFS_KEY); } catch { return null; }
+  try { return localStorage.getItem(PREFS_KEY) ?? localStorage.getItem(OLD_PREFS_KEY); } catch { return null; }
 };
 
 export const savePrefs = async (json: string): Promise<void> => {

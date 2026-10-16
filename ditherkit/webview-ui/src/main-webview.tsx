@@ -58,8 +58,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const [palette, setPalette] = useState<string[]>([]);
   const [tiles, setTiles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [session, setSession] = useState(false);
-  const [sessionMs, setSessionMs] = useState(0);
+  const [lastMs, setLastMs] = useState<number | null>(null);
   const [working, setWorking] = useState("");
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
   const [menu, setMenu] = useState<"settings" | "presets" | "output" | null>(null);
@@ -70,8 +69,6 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const s = prefs.settings;
   const settingsRef = useRef(s);
   settingsRef.current = s;
-  const sessionRef = useRef(false);
-  sessionRef.current = session;
 
   const { theme, tone } = resolveTheme(prefs.appearance, hostTheme);
   const family = algorithmInfo(s.algorithm).family;
@@ -127,29 +124,20 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     } catch { /* tiles are decoration */ }
   });
 
-  const updateSession = useLatest<void>(async () => {
-    try {
-      const r = await api.updateSession(settingsRef.current);
-      if (r.ms) setSessionMs(r.ms);
-    } catch (e) { fail(e); }
-  });
-
   const tilesTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scheduleTiles = () => { clearTimeout(tilesTimer.current); tilesTimer.current = setTimeout(() => renderTiles(), 250); };
 
-  /** Updates settings. `commit` is false while a slider is being dragged: the canvas waits for release. */
-  const set = (patch: Partial<DitherSettings>, commit = true) => {
+  /** Updates settings and re-renders the panel preview. */
+  const set = (patch: Partial<DitherSettings>) => {
     // Compute synchronously: the render jobs below read settingsRef before React applies the update.
     const next = { ...settingsRef.current, ...patch };
     settingsRef.current = next;
     setPrefs((p) => ({ ...p, settings: next }));
     renderPreview();
     if (!("algorithm" in patch)) scheduleTiles();
-    if (commit && sessionRef.current) updateSession();
   };
   const slide = (key: keyof DitherSettings) => ({
-    onChange: (v: number) => set({ [key]: v } as Partial<DitherSettings>, false),
-    onCommit: (v: number) => set({ [key]: v } as Partial<DitherSettings>, true),
+    onChange: (v: number) => set({ [key]: v } as Partial<DitherSettings>),
   });
 
   // ---------------------------------------------------------------- document and source
@@ -159,7 +147,6 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   }, [api, prefs.source]);
 
   const reloadSource = useCallback(async () => {
-    if (sessionRef.current) return;
     try {
       const info = await api.loadSource(prefs.source);
       setSource(info);
@@ -185,8 +172,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
 
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | undefined;
-    const onChange = (e: Event) => {
-      if ((e as CustomEvent<string>).detail === "session-ended") endedOutside();
+    const onChange = () => {
       clearTimeout(t);
       t = setTimeout(() => { refreshStatus(); reloadSource(); }, 300);
     };
@@ -246,66 +232,23 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     resizeTimer.current = setTimeout(() => { if (vpRef.current.zoom !== "fit") renderPreview(); else setVp({ ...vpRef.current }); }, 150);
   };
 
-  // ---------------------------------------------------------------- session
+  // ---------------------------------------------------------------- apply
 
-  const start = async (skipCheck = false) => {
+  /** Renders the dither at full size and writes it as the chosen output, as one undo step. */
+  const apply = async (skipCheck = false) => {
     if (!status?.hasDoc) { setToast({ message: "Open a document to start.", error: true }); return; }
     const bad = status.checks.filter((c) => !c.ok);
     if (!skipCheck && bad.length && (prefs.checkBeforeDither || !status.ready)) { setDialog({ kind: "preflight" }); return; }
     if (!source) { setToast({ message: sourceError || "Nothing to dither yet.", error: true }); return; }
-    setWorking("Rendering on canvas…");
+    setWorking("Dithering…");
     try {
-      const r = await api.startSession(settingsRef.current, prefs.output);
-      setSession(true);
-      setSessionMs(r.ms);
+      const r = await api.applyDither(settingsRef.current, prefs.output);
+      setLastMs(r.ms);
+      if (r.message) setToast({ message: r.message });
     } catch (e) { fail(e); } finally { setWorking(""); }
   };
 
-  /** The live layer disappeared in Photoshop (undo, delete, closed document): go back to the idle state. */
-  const endedOutside = () => {
-    if (!sessionRef.current) return;
-    sessionRef.current = false;
-    setSession(false);
-    setToast({ message: "The dither was undone in Photoshop." });
-  };
-
-  useEffect(() => {
-    if (!session) return;
-    const check = () => { api.isSessionActive().then((alive) => { if (!alive) { endedOutside(); refreshStatus(); reloadSource(); } }).catch(() => {}); };
-    const timer = setInterval(check, 2000);
-    window.addEventListener("focus", check);
-    return () => { clearInterval(timer); window.removeEventListener("focus", check); };
-  }, [session, api, refreshStatus, reloadSource]);
-
-  const cancel = async () => {
-    setWorking("Reverting…");
-    try { await api.cancelSession(); } catch (e) { fail(e); }
-    setSession(false);
-    setWorking("");
-  };
-
-  const save = async (output: Output = prefs.output) => {
-    setWorking("Saving…");
-    try {
-      const msg = await api.saveSession(settingsRef.current, output);
-      const still = await api.isSessionActive();
-      setSession(still);
-      if (msg) setToast({ message: msg });
-    } catch (e) { fail(e); setSession(await api.isSessionActive()); }
-    setWorking("");
-  };
-
-  /** Picks the output. During a dither the canvas preview is rebuilt to match it. */
-  const chooseOutput = async (output: Output) => {
-    setPref("output", output);
-    if (!sessionRef.current) return;
-    setWorking("Updating preview…");
-    try {
-      const r = await api.setSessionOutput(settingsRef.current, output);
-      if (r.ms) setSessionMs(r.ms);
-    } catch (e) { fail(e); }
-    setWorking("");
-  };
+  const chooseOutput = (output: Output) => setPref("output", output);
 
   const runBatch = async () => {
     setBatch({ done: 0, total: status?.selectedCount ?? 0 });
@@ -316,8 +259,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const onKeyDown = (e: React.KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || dialog || menu) return;
-    if (e.key === "Enter") { e.preventDefault(); session ? save() : start(); }
-    if (e.key === "Escape" && session) { e.preventDefault(); cancel(); }
+    if (e.key === "Enter") { e.preventDefault(); apply(); }
   };
 
   // ---------------------------------------------------------------- palette editing
@@ -363,7 +305,6 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     setPrefs((pr) => ({ ...pr, settings: next, family: algorithmInfo(next.algorithm).family }));
     renderPreview();
     renderTiles();
-    if (sessionRef.current) updateSession();
   };
   const exportPresets = async () => {
     try { setToast({ message: await api.exportPresetsFile(JSON.stringify({ ditherkitPresets: 1, presets: prefs.presets }, null, 2)) }); } catch (e) { fail(e); }
@@ -403,9 +344,9 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
     { kind: "item", label: "Reset all settings", onSelect: () => applyPreset({ name: "Default", settings: {} }) },
   ];
   const outputInfo = OUTPUTS.find((o) => o.id === prefs.output)!;
-  const canBatch = (status?.selectedCount ?? 0) > 1 && prefs.source === "layer" && !session && !batch;
+  const canBatch = (status?.selectedCount ?? 0) > 1 && prefs.source === "layer" && !batch;
   const outputMenu: MenuItem[] = [
-    { kind: "label", label: session ? "Save as" : "Dither, then save as" },
+    { kind: "label", label: "Dither as" },
     ...OUTPUTS.map((o): MenuItem => ({ kind: "item", label: o.label, hint: o.detail, checked: prefs.output === o.id, onSelect: () => chooseOutput(o.id) })),
     ...(canBatch ? [
       { kind: "divider" } as MenuItem,
@@ -419,7 +360,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
   const toggle = (key: string) => setPref("open", { ...prefs.open, [key]: !open(key) });
   const familyAlgorithms = ALGORITHMS.filter((a) => a.family === family);
   const statusLeft = working || (batch ? `Dithering ${batch.done} of ${batch.total} layers` : status?.hasDoc ? `${status.layerName || status.docName}` : "No document open");
-  const statusRight = session ? `${(sessionMs / 1000).toFixed(2)} s` : status?.hasDoc ? status.summary : "";
+  const statusRight = status?.hasDoc ? status.summary : "";
   const statusTone = status && status.hasDoc && !status.ready ? "warn" : status?.checks.every((c) => c.ok) ? "ok" : undefined;
 
   return (
@@ -427,7 +368,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
       <PluginHeader
         name="Ditherkit"
         version={VERSION}
-        actions={<button className="wb-btn icon" aria-label="Settings" title="Settings" onClick={() => setMenu(menu === "settings" ? null : "settings")}><SettingsIcon /></button>}
+        actions={<button className="wb-btn icon" data-menu-toggle aria-label="Settings" title="Settings" onClick={() => setMenu(menu === "settings" ? null : "settings")}><SettingsIcon /></button>}
       />
       {menu === "settings" && <Menu items={settingsMenu} onClose={() => setMenu(null)} style={{ right: 10, top: 40, maxHeight: "75%", overflowY: "auto" }} />}
 
@@ -459,10 +400,10 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
         onFit={() => zoomTo("fit")}
       />
       <div className="wb-toolrow" ref={toolrow}>
-        <div className={session ? "src disabled" : "src"} title={session ? "Save or cancel the current dither to change the source" : undefined}>
+        <div className="src">
           <Tabs items={SOURCES} value={prefs.source} onChange={(v) => setPref("source", v)} />
         </div>
-        <button className="wb-btn" onClick={() => setMenu(menu === "presets" ? null : "presets")} aria-haspopup="menu" aria-expanded={menu === "presets"}>
+        <button className="wb-btn" data-menu-toggle onClick={() => setMenu(menu === "presets" ? null : "presets")} aria-haspopup="menu" aria-expanded={menu === "presets"}>
           <PresetsIcon /> Presets <ChevronDownIcon />
         </button>
       </div>
@@ -541,7 +482,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
 
         <Section title="Tone" summary={sum.tone} open={open("tone")} onToggle={() => toggle("tone")}>
           <LevelsControl value={s.levels} histogram={source?.histogram ?? null}
-            onChange={(levels) => set({ levels }, false)} onCommit={(levels) => set({ levels }, true)} />
+            onChange={(levels) => set({ levels })} />
           <Slider label="Blur" value={s.blur} min={0} max={20} format={(v) => `${v} px`} {...slide("blur")} />
           <Slider label="Sharpen" value={s.sharpen} min={0} max={200} format={(v) => `${v}%`} {...slide("sharpen")} />
           <Slider label="Denoise" value={s.denoise} min={0} max={100} format={(v) => `${v}%`} {...slide("denoise")} />
@@ -567,26 +508,16 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
 
       <footer className="wb-foot">
         {batch && <Progress value={batch.total ? batch.done / batch.total : 0} />}
-        <StatusLine left={statusLeft} right={statusRight} tone={session ? undefined : statusTone} />
+        <StatusLine left={lastMs !== null && !working && !batch ? `${statusLeft} · last ${(lastMs / 1000).toFixed(2)} s` : statusLeft} right={statusRight} tone={statusTone} />
         <div className="wb-actions">
           {batch ? (
             <button className="wb-btn" onClick={() => api.stopBatch()}>Stop</button>
-          ) : session ? (
-            <>
-              <button className="wb-btn" disabled={!!working} onClick={cancel}>Cancel <span className="wb-kbd">esc</span></button>
-              <div className="wb-split-btn">
-                <button className="wb-btn primary" disabled={!!working} onClick={() => save()} title={`Save as ${outputInfo.label.toLowerCase()} (Enter)`}>
-                  Save <span className="wb-kbd">{outputInfo.label}</span>
-                </button>
-                <button className="wb-btn primary" aria-label="Choose output" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}><ChevronDownIcon /></button>
-              </div>
-            </>
           ) : (
             <div className="wb-split-btn wide">
-              <button className="wb-btn primary" disabled={!!working || !status?.hasDoc} onClick={() => start()} title={`Dither, then save as ${outputInfo.label.toLowerCase()}`}>
+              <button className="wb-btn primary" disabled={!!working || !status?.hasDoc} onClick={() => apply()} title={`Dither as ${outputInfo.label.toLowerCase()} (Enter)`}>
                 Dither <span className="wb-kbd">{outputInfo.label}</span>
               </button>
-              <button className="wb-btn primary" aria-label="Choose output" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}><ChevronDownIcon /></button>
+              <button className="wb-btn primary" data-menu-toggle aria-label="Choose output" disabled={!!working} onClick={() => setMenu(menu === "output" ? null : "output")}><ChevronDownIcon /></button>
             </div>
           )}
         </div>
@@ -599,7 +530,7 @@ export function App({ api }: { api: DitherkitAPI }): ReactElement {
         <Dialog title="Document check" onClose={() => setDialog(null)} buttons={
           <>
             <button className="wb-btn small" onClick={() => setDialog(null)}>Close</button>
-            {status.ready && !session && <button className="wb-btn small primary" onClick={() => { setDialog(null); start(true); }}>Dither anyway</button>}
+            {status.ready && <button className="wb-btn small primary" onClick={() => { setDialog(null); apply(true); }}>Dither anyway</button>}
           </>
         }>
           <p>{status.ready ? "This document can be dithered. Fixing the items below gives more accurate colors." : "Fix the items below before dithering."}</p>

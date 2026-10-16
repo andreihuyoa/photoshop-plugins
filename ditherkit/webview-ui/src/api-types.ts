@@ -13,12 +13,7 @@ export interface DitherkitAPI {
   renderPreview: Fns["renderPreview"];
   resetPreviewCache: Fns["resetPreviewCache"];
   renderTiles: Fns["renderTiles"];
-  startSession: Fns["startSession"];
-  updateSession: Fns["updateSession"];
-  setSessionOutput: Fns["setSessionOutput"];
-  cancelSession: Fns["cancelSession"];
-  saveSession: Fns["saveSession"];
-  isSessionActive: Fns["isSessionActive"];
+  applyDither: Fns["applyDither"];
   ditherSelected: Fns["ditherSelected"];
   stopBatch: Fns["stopBatch"];
   importPaletteFile: Fns["importPaletteFile"];
